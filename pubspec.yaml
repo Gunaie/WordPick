@@ -1,0 +1,47 @@
+name: english_study
+description: "跨端英语学习工具：英美双发音、四六级/考研词库、拼写练习、错题本与笔记"
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Flutter 3.50 起 package:flutter/material.dart 已弃用，官方后继为 material_ui
+  material_ui: ^1.11.0
+
+  cupertino_icons: ^1.0.8
+
+  # HTTP 请求（有道 / Free Dictionary）
+  http: ^1.6.0
+
+  # 音频播放（英美发音）
+  audioplayers: ^6.8.1
+
+  # 本地数据库（原生 FFI，非插件）
+  sqlite3: ^3.8.0
+
+  # 跨平台数据目录
+  path: ^1.9.0
+  path_provider: ^2.1.6
+
+  # Web 端 localStorage（持久化学习进度）
+  web: ^1.0.0
+
+  # 生成跨端唯一的笔记 ID
+  uuid: ^4.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/data/
