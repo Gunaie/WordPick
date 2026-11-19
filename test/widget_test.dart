@@ -2,6 +2,7 @@ import 'package:english_study/data/affix_repository.dart';
 import 'package:english_study/data/daily_stat.dart';
 import 'package:english_study/data/word_repository.dart';
 import 'package:english_study/domain/affix.dart';
+import 'package:english_study/domain/custom_word_parser.dart';
 import 'package:english_study/domain/edit_distance.dart';
 import 'package:english_study/domain/spelling_hints.dart';
 import 'package:english_study/domain/srs.dart';
@@ -262,6 +263,42 @@ void main() {
     test('词根拆解提示拼接命中段', () {
       expect(affixBreakdownHint('predict', affixes), 'pre- + dict');
       expect(affixBreakdownHint('xyz不存在', affixes), '');
+    });
+  });
+
+  group('自建词解析', () {
+    test('支持纯单词、空格释义、逗号释义', () {
+      final r = parseCustomWordsDetailed(
+        'serendipity\nresilient 有韧性的\nubiquitous, 无处不在的',
+      );
+      expect(
+        r.added.map((w) => w.w).toList(),
+        ['serendipity', 'resilient', 'ubiquitous'],
+      );
+      expect(r.added[1].primaryDefinition, '有韧性的');
+      expect(r.invalid, isEmpty);
+    });
+
+    test('可容忍序号、音标与词性标注', () {
+      final r = parseCustomWordsDetailed(
+        '1. abandon 放弃\n'
+        '2) resilient [rɪˈzɪliənt] 有韧性的\n'
+        '3、ubiquitous /juːˈbɪkwɪtəs/ 无处不在的\n'
+        'cosmopolitan adj. 世界性的\n'
+        'diligent (adj.) 勤勉的',
+      );
+      expect(
+        r.added.map((w) => w.w).toList(),
+        ['abandon', 'resilient', 'ubiquitous', 'cosmopolitan', 'diligent'],
+      );
+      expect(r.invalid, isEmpty);
+    });
+
+    test('区分已存在与无法识别', () {
+      final r = parseCustomWordsDetailed('hello\n123\n!!!', exclude: {'hello'});
+      expect(r.added, isEmpty);
+      expect(r.duplicates, ['hello']);
+      expect(r.invalid, ['123', '!!!']);
     });
   });
 }

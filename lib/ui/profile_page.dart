@@ -355,18 +355,28 @@ class _CustomTabState extends State<_CustomTab> {
   }
 
   Future<void> _import() async {
-    final added = await widget.state.importCustomWords(_input.text);
+    final r = await widget.state.importCustomWords(_input.text);
     if (!mounted) return;
-    if (added > 0) {
-      _input.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已添加 $added 个词')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('没有新增（可能已存在或格式为空）')),
-      );
+
+    if (r.added.isNotEmpty) _input.clear();
+
+    final parts = <String>[];
+    if (r.added.isNotEmpty) parts.add('已添加 ${r.added.length} 个词');
+    if (r.duplicates.isNotEmpty) parts.add('${r.duplicates.length} 行已存在');
+    if (r.invalid.isNotEmpty) {
+      final sample = r.invalid
+          .take(2)
+          .map((s) => '「${s.length > 16 ? '${s.substring(0, 16)}…' : s}」')
+          .join('、');
+      parts.add('${r.invalid.length} 行无法识别：$sample');
     }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(parts.isEmpty ? '没有可导入的内容' : parts.join('；')),
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override

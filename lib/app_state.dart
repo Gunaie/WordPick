@@ -421,17 +421,16 @@ class AppState extends ChangeNotifier {
 
   // ── 自建词库 ──
 
-  /// 解析粘贴的文本，每行格式：`word` 或 `word 释义` 或 `word,释义`
-  /// 返回成功添加的数量
-  Future<int> importCustomWords(String text) async {
+  /// 解析粘贴的文本并导入自建词库，返回明细（新增 / 已存在 / 无法识别）
+  Future<CustomWordParseResult> importCustomWords(String text) async {
     final exclude = <String>{
       ..._customWords.map((w) => w.key),
       ...repo.all.map((w) => w.key),
     };
-    final parsed = parseCustomWords(text, exclude: exclude);
-    if (parsed.isEmpty) return 0;
+    final result = parseCustomWordsDetailed(text, exclude: exclude);
+    if (result.added.isEmpty) return result;
 
-    _customWords.addAll(parsed);
+    _customWords.addAll(result.added);
     await _store.saveCustomWords(_customWords.map(_toJson).toList());
     notifyListeners();
     unawaited(
@@ -440,7 +439,7 @@ class AppState extends ChangeNotifier {
         jsonEncode(_customWords.map(_toJson).toList()),
       ),
     );
-    return parsed.length;
+    return result;
   }
 
   Future<void> removeCustomWord(Word word) async {
