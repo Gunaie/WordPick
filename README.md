@@ -1,30 +1,31 @@
 # english_study
 
-跨端英语学习工具：英美双发音、四六级/考研词库、拼写练习、错题本与笔记。
+跨端英语学习工具：自建单词本、四选一学习卡、拼写练习、笔记与云同步。
 
 ## 功能
 
 | 模块 | 说明 |
 |---|---|
-| 词库浏览 | 内置 `assets/data/words.json`（CET-4 / CET-6 / 考研），离线可用 |
-| 单词卡片 | 自实现 SM-2 间隔重复，四档反馈（重来 / 难 / 一般 / 简单） |
-| 拼写练习 | 听音拼写、看义拼写，编辑距离容错 + 逐字母提示 |
-| 发音 | 有道 dictvoice，英音 / 美音可切换（需联网） |
-| 我的 | 收藏 / 错题本 / 笔记 / 自建词 / 设置 |
-| 学习统计 | 每日新学与复习记录、连续天数 |
-| 词根词缀 | 自建词缀库 + 保守匹配的专题页 |
-| 云同步 | 直连 PostgREST（可选，未配置时不影响本地使用） |
+| 今日 | 签到卡、待复习 / 今日已学数字块、开始学习与拼写入口 |
+| 学习 | 自建词四选一，答对答错自动评分，到期词按可配置上限分批，词池不足时降级自评四档 |
+| 词单 | 自建单词本增删改查，导入 / 编辑 / 删除词条；支持词性与多释义；加词时离线词典自动带出音标与释义 |
+| 拼写练习 | 发音与释义同时展示，编辑距离容错 + 四级提示（首字母 / 音节 / 词根 / 四选一） |
+| 笔记 / 词根词缀 / 统计 | 时间线小记（标题 / 标签 / 可选关联单词）、词缀拆解、每日记录与连续天数 |
+| 发音 | 有道 dictvoice，首次播放后本地缓存；网络失败用设备 TTS 兜底 |
+| 设置 | 发音口音、每组新词数、每组复习数、拼写题量（本地持久化） |
+| 数据 | 设置页导出完整 JSON 与笔记 Markdown，并可从 JSON 合并恢复 |
+| 云同步 | 直连 PostgREST（可选）；启动与回到前台自动同步，也可手动立即同步 |
 
 ## 目录结构
 
 ```
 English/
 ├── lib/
-│   ├── main.dart                 入口
+│   ├── main.dart                 入口与三 Tab 导航
 │   ├── app_state.dart            全局状态（ChangeNotifier）+ 业务编排
 │   ├── data/                     仓储与持久化
-│   │   ├── word_repository.dart  词库加载
 │   │   ├── affix_repository.dart 词缀库加载
+│   │   ├── dictionary_repository.dart 离线词典加载（dict_core.json）
 │   │   ├── progress_store.dart   条件导出（native / web / stub）
 │   │   ├── progress_store_native.dart
 │   │   ├── progress_store_web.dart
@@ -35,11 +36,15 @@ English/
 │   ├── domain/                   纯逻辑，无 IO、可单测
 │   │   ├── word.dart  affix.dart  srs.dart
 │   │   ├── edit_distance.dart  spelling_hints.dart
+│   │   ├── learning_quiz.dart    四选一与自动评分
+│   │   ├── export_builder.dart   JSON / Markdown 导出内容
 │   │   └── custom_word_parser.dart
 │   ├── services/
-│   │   └── audio_service.dart    dictvoice 播放
-│   └── ui/                       页面（复习 / 拼写 / 词库 / 统计 / 我的 …）
-├── assets/data/                  words.json、affixes.json
+│   │   ├── audio_service.dart    dictvoice 播放 + 缓存 + TTS 兜底
+│   │   ├── audio_cache.dart      发音缓存（条件导出）
+│   │   └── export_service.dart   导出落盘（条件导出）
+│   └── ui/                       页面（今日 / 学习 / 词单 / 拼写 / 我的 …）
+├── assets/data/                  affixes.json、dict_core.json
 ├── android/  ios/  macos/  windows/  web/    各端工程
 ├── docs/                         文档（见下）
 │   └── research/                 早期调研与避坑记录
@@ -62,13 +67,15 @@ English/
 ## 常用命令
 
 ```bash
-flutter pub get
-dart analyze
-flutter test
-flutter run -d chrome        # Web
-flutter run -d windows       # Windows 桌面（需已修好插件 junction）
-flutter run -d <设备ID>       # Android 真机
+dart pub get                  # 依赖解析（不要用 flutter pub get）
+flutter analyze --no-pub
+flutter test --no-pub
+node scripts/build_dict_assets.js  # 重新生成离线词典 dict_core.json
+preview_web.cmd               # 电脑端预览（Edge，端口 8091）
+flutter run -d <设备ID>        # Android 真机
 ```
+
+> Windows 桌面端在本机缺 VS C++ 工作负载与开发者模式，当前无法构建（见 `docs/known-issues.md` ISSUE-027），日常用 Web 预览。
 
 ## 打包 Android APK
 
@@ -82,10 +89,11 @@ flutter run -d <设备ID>       # Android 真机
 
 | 文件 | 内容 |
 |---|---|
+| [docs/requirements-v1.md](docs/requirements-v1.md) | 需求与界面方案 v1（M1–M10 已实现） |
 | [docs/architecture.md](docs/architecture.md) | 技术栈、代码结构、数据流 |
-| [docs/api.md](docs/api.md) | 外部接口约定（dictvoice、同步接口） |
-| [docs/conventions.md](docs/conventions.md) | 编码 / Git / 测试约定 |
-| [docs/decisions.md](docs/decisions.md) | 技术决策记录 D01–D27 |
+| [docs/api.md](docs/api.md) | 外部接口约定（dictvoice、PostgREST 同步、本地存储） |
+| [docs/conventions.md](docs/conventions.md) | 编码 / 构建 / 测试 / Git 约定 |
+| [docs/decisions.md](docs/decisions.md) | 技术决策记录 D01–D40 |
 | [docs/known-issues.md](docs/known-issues.md) | 已知问题与规避方案 |
 | [docs/research/](docs/research/) | 早期产品调研、API 实测与避坑指南 |
 | [HANDOVER.md](HANDOVER.md) | 交接文档 |

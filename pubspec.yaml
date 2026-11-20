@@ -2,7 +2,7 @@ name: english_study
 description: "跨端英语学习工具：英美双发音、四六级/考研词库、拼写练习、错题本与笔记"
 publish_to: 'none'
 
-version: 0.1.0+1
+version: 0.14.0+14
 
 environment:
   sdk: ^3.13.7
@@ -34,6 +34,12 @@ dependencies:
 
   # 生成跨端唯一的笔记 ID
   uuid: ^4.6.0
+
+  # 网络失败时的设备 TTS 兜底
+  flutter_tts: ^4.2.3
+
+  # 原生端导出文件调起系统分享
+  share_plus: ^10.1.4
 
 dev_dependencies:
   flutter_test:

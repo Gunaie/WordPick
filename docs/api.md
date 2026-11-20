@@ -1,302 +1,159 @@
 # 接口约定
 
-> 外部接口（有道发音、CloudBase 同步）、本地存储接口。
-> 接口稳定性等级：🟢 稳定 / 🟡 灰色（内部接口，可能变） / 🔴 待实现
->
-> **现状校准（2026-11-19）**：第 1.1 节（dictvoice 发音）与第 3 节（同步）为当前实现；
-> 第 1.2 节的有道 jsonapi、第 2 节 Free Dictionary **均未接入**，原 `DictionaryService`
-> 已删除，释义全部来自打包的 `words.json`（见 D16）。以下保留为历史设计参考。
-> 本地存储实际为 sqlite3 手写 SQL（非 drift），表结构见 `architecture.md`。
+> 本文记录**当前代码实际使用**的对外接口与内部接口。
+> 技术选型的历史背景见 `decisions.md`；早期调研与实测数据见 `docs/research/`。
+> 接口稳定性：🟢 稳定 / 🟡 灰色（内部接口，可能随时变） / ⚪ 仅设计稿（未接入）
 
 ---
 
-## 1. 有道词典 API（🟡 灰色接口）
+## 0. 现状总览
 
-### 1.1 发音（音频）
+| 接口 | 状态 | 代码位置 | 说明 |
+|---|---|---|---|
+| 有道 dictvoice 发音 | 🟡 已接入 | `lib/services/audio_service.dart` | 英 / 美双音 mp3，本地缓存 + TTS 兜底 |
+| CloudBase PostgREST 同步 | 🟢 已接入（可选） | `lib/data/cloud_sync.dart` | 3 张表增删改查，未配置时纯本地运行 |
+| 本地存储（sqlite3 / localStorage） | 🟢 已接入 | `lib/data/progress_store*.dart` | 见第 3 节 |
+| 有道 jsonapi 查词 | ⚪ 未接入 | — | 释义来自自建词条与离线词典（M3B） |
+| Free Dictionary API | ⚪ 未接入 | — | 原 fallback 方案，`DictionaryService` 已删除 |
+| 系统 TTS（flutter_tts） | 🟢 已接入（兜底） | `lib/services/audio_service.dart` | 网络发音失败时朗读，Web 走 SpeechSynthesis |
+| CloudBase Flutter SDK | ⚪ 未使用 | — | 改为 http 直连 PostgREST（D20） |
+| drift ORM | ⚪ 未使用 | — | 改为 sqlite3 手写 SQL（D11） |
+| 词典熔断器 | ⚪ 未实现 | — | 只存在于早期设计（D10），现无该代码 |
 
-| 项 | 值 |
-|---|---|
-| **URL** | `http://dict.youdao.com/dictvoice?type={0\|1}&audio={word}` |
-| **type=0** | 美式发音 |
-| **type=1** | 英式发音 |
-| **音频格式** | MP3 |
-| **响应** | 直接返回音频流 |
-| **超时** | 500ms（超过则熔断） |
-| **实测速度** | 52-94 ms |
-| **大小** | ~10 KB / 词 |
+> 也就是说：应用只有一个真实的外部网络依赖——`dict.youdao.com`（发音），
+> 外加一个可开关的同步依赖——CloudBase PostgREST。
 
-```dart
-// 正确拼接方式（参数顺序不能乱）
-Uri.http('dict.youdao.com', '/dictvoice', {
-  'type': '0',           // 0=美, 1=英
-  'audio': 'predict',    // 单词（URL encode 特殊字符）
-});
-// → http://dict.youdao.com/dictvoice?type=0&audio=predict
-```
+---
 
-### 1.2 查词（释义 + 音标）
+## 1. 发音：有道 dictvoice（🟡 灰色接口）
 
 | 项 | 值 |
 |---|---|
-| **URL** | `https://dict.youdao.com/jsonapi?dicts={modules}&q={word}` |
-| **dicts** | `ec.basic`（最简）|
-| **额外模块** | `ce.basic,phonetic,web_trans` |
-| **响应** | JSON |
-| **超时** | 500ms |
-| **实测速度** | ~90 ms |
+| URL | `https://dict.youdao.com/dictvoice?type={0\|1}&audio={word}` |
+| `type=0` | 美式发音 |
+| `type=1` | 英式发音 |
+| 音频格式 | MP3（约 10 KB / 词） |
+| 实测延迟 | 52–94 ms |
+| 超时 | 缓存下载 4 s；播放失败回退设备 TTS，不中断学习流程 |
+| 缓存 | 应用缓存目录 `pronunciation/word_type.mp3`，命中直接播本地（D35） |
 
 ```dart
-Uri.https('dict.youdao.com', '/jsonapi', {
-  'dicts': 'ec.basic,phonetic',
-  'q': 'predict',
-});
-```
-
-#### 响应字段（已实测）
-
-```json
-{
-  "ec": {
-    "word": [{
-      "usphone": "prɪˈdɪkt",          // 美音音标
-      "ukphone": "prɪˈdɪkt",          // 英音音标
-      "ukspeech": "predict&type=1",   // 英音发音参数（需拼接完整 URL）
-      "usspeech": "predict&type=2",   // 美音发音参数
-      "trs": [{
-        "tr": [{
-          "l": { "i": ["v. 预言，预计，预卜"] }
-        }]
-      }]
-    }]
-  }
+// lib/services/audio_service.dart
+static String urlFor(String word, {required bool uk}) {
+  final type = uk ? 1 : 0;
+  return 'https://dict.youdao.com/dictvoice'
+      '?type=$type&audio=${Uri.encodeComponent(word)}';
 }
 ```
 
-**⚠️ 注意**：
-- `ukspeech` / `usspeech` 字段值不是完整 URL，只给了"单词 + type"参数
-- 要自己拼成完整 URL：`http://dict.youdao.com/dictvoice?type=1&audio=predict`
-- 返回的 `phonetic` 模块里有 web_trans（网络翻译），但结构不统一，谨慎使用
+- 播放顺序：本地缓存 → 下载并缓存 → `UrlSource` 在线播放 → 设备 TTS。
+- 默认口音是英音（`AudioService.isUk = true`）；设置页可切换英 / 美音，选择存本地并在启动时写回。
+- 风险：属于未公开接口，可能随时失效或被限流；已缓存词仍可离线播放，未缓存词由 TTS 兜底。
 
 ---
 
-## 2. Free Dictionary API（🟢 稳定）
+## 2. 云同步：CloudBase PostgREST（🟢 已接入，可关闭）
+
+### 2.1 连接信息
 
 | 项 | 值 |
 |---|---|
-| **URL** | `https://api.dictionaryapi.dev/api/v2/entries/en/{word}` |
-| **授权** | CC BY-SA 3.0 |
-| **超时** | 500ms（实测 1.6s/词，作为 fallback） |
-| **响应** | JSON 数组 |
-| **速率限制** | 每 IP 每分钟 60 次（非官方声明） |
+| 基址 | `https://{envId}.api.tcloudbasegateway.com/v1/rdb/rest` |
+| envId | 见 `lib/data/sync_config.dart` |
+| 鉴权 | `Authorization: Bearer {Publishable Key}`（anon 角色） |
+| 其他请求头 | `Content-Type: application/json`、`x-device-id` |
+| 写入头 | `Prefer: resolution=merge-duplicates,return=minimal`（按主键 upsert） |
+| 超时 | 12 秒（`CloudSync._timeout`） |
+| 用户过滤 | 所有请求自动带 `user_id=eq.{SyncConfig.userId}`；当前固定为 `me`，多端填同一个值即可互通 |
+| 开关 | `SyncConfig.enabled`，关闭后完全离线 |
 
-#### 响应字段
+> Publishable Key 是 anon 角色密钥，可随客户端分发；**禁止**把 `service_role` 密钥写进客户端。
 
-```json
-[{
-  "word": "predict",
-  "phonetic": "/prɪˈdɪkt/",              // 主音标
-  "phonetics": [
-    {
-      "text": "/prɪˈdɪkt/",
-      "audio": "https://.../predict-us.mp3",  // 常只有美式
-      "sourceUrl": "https://...dict",
-      "license": { "name": "CC BY-SA 3.0" }
-    }
-  ],
-  "meanings": [{
-    "partOfSpeech": "verb",
-    "definitions": [{
-      "definition": "say that something will happen in the future",
-      "example": "She predicted the company would go bankrupt.",
-      "synonyms": ["foretell", "prophesy"]
-    }]
-  }],
-  "license": { "name": "CC BY-SA 3.0" }
-}]
-```
+### 2.2 数据表
 
-**⚠️ 已知问题**：
-- 经常只返回美式音频（英音缺失率 > 50%）
-- 无中文释义（只有英文定义）
-- 404 时返回 `{ "title": "No Definitions Found", "message": "...", "resolution": "..." }`
+| 表 | 主键 | 字段 | 用途 |
+|---|---|---|---|
+| `review_state` | `(user_id, word_key)` | `ease` `interval` `reps` `lapses` `due` `updated_at` | 每词 SM-2 学习状态 |
+| `note` | `id` | `user_id` `word_key` `title` `content` `tags` `created_at` `updated_at` `deleted` | 笔记（UUID + 软删除；`title` / `tags` 需旧库 ALTER，见 ISSUE-033） |
+| `user_meta` | `(user_id, key)` | `value` `updated_at` | 键值 JSON：自建单词本 `custom_books` 等 |
 
----
+建表与授权 SQL 见 `docs/cloudbase_schema.sql`。
 
-## 3. 系统 TTS（✅ 平台原生）
+### 2.3 调用方法
 
-| 平台 | 实现 | flutter_tts 包自动调用 |
+| 方法 | 请求 | 说明 |
 |---|---|---|
-| iOS | AVFoundation | ✅ |
-| Android | TextToSpeech | ✅ |
-| Windows | Speech API (SAPI) | ✅ |
-| macOS | NSSpeechSynthesizer | ✅ |
+| `pullReviewStates()` | `GET review_state?select=*&user_id=eq.me` | 全量拉取，返回 `Map<wordKey, ReviewState>` |
+| `pushReviewStates(states)` | `POST review_state`（数组） | 批量 upsert |
+| `pullNotes()` | `GET note?select=*&user_id=eq.me` | 含已软删除记录，好让删除动作同步下去 |
+| `pushNotes(notes)` | `POST note`（数组） | 按 `id` upsert |
+| `pullMeta()` | `GET user_meta?select=key,value&user_id=eq.me` | 返回 `Map<String, String>` |
+| `pushMeta(values)` | `POST user_meta`（数组） | 按 `(user_id,key)` upsert |
+| `deleteMeta(key)` | `DELETE user_meta?key=eq.{key}&user_id=eq.me` | 清理已下线功能的残留键 |
+| `wipeAll()` | `DELETE` 三张表 | 「清空数据」时本地 + 云端一起清（D26，不可撤销） |
 
-```dart
-import 'package:flutter_tts/flutter_tts.dart';
+### 2.4 合并策略
 
-final tts = FlutterTts();
-await tts.setLanguage('en-US');   // 美音
-await tts.setLanguage('en-GB');   // 英音
-await tts.speak('accommodate');
-```
-
-**音质**：比原生词典音频差，但自建词库的单词必须用这个兜底。
-
----
-
-## 4. CloudBase Flutter SDK（🟢 稳定）
-
-### 4.1 初始化
-
-```dart
-import 'package:cloudbase_core/cloudbase_core.dart';
-
-await CloudBaseCore.init({
-  'env': 'your-env-id-xxxxx',    // 腾讯云开发控制台 → 环境设置
-});
-```
-
-### 4.2 Auth
-
-```dart
-// 匿名登录（无手机号/邮箱也能用）
-final loginResult = await CloudBaseAuth.instance.signInAnonymously();
-final uid = loginResult.user.uid;
-```
-
-### 4.3 文档数据库（用户数据）
-
-```dart
-final db = CloudBaseDatabase.instance;
-final collection = db.collection('user_words');
-
-// 查询（按 user_id 过滤）
-final result = await collection
-    .where({'user_id': uid, 'next_review': lte(DateTime.now().toIso8601String())})
-    .limit(20)
-    .get();
-
-// 写入
-await collection.add({
-  'user_id': uid,
-  'word_id': 'cet4-0001',
-  'ease_factor': 2.5,
-  'interval': 1,
-  'repetitions': 0,
-  'next_review': DateTime.now().add(Duration(days: 1)).toIso8601String(),
-  'updated_at': DateTime.now().toIso8601String(),
-  'version': 1,
-});
-
-// 更新
-await collection.doc(docId).update({
-  'interval': 3,
-  'next_review': nextDate.toIso8601String(),
-  'updated_at': DateTime.now().toIso8601String(),
-  'version': 2,
-});
-```
-
-### 4.4 实时同步（watch）
-
-```dart
-final watcher = collection
-    .where({'user_id': uid})
-    .watch()
-    .listen((event) {
-      // event.docs: 变化的文档
-      // 触发本地刷新
-      ref.invalidate(userWordsProvider);
-    });
-
-// 停止监听
-watcher.cancel();
-```
-
-### 4.5 Row Level Security（数据隔离）
-
-在 CloudBase 控制台 → 数据库 → 安全规则设置：
-
-```json
-{
-  "read": "doc.user_id == auth.uid()",
-  "write": "doc.user_id == auth.uid()",
-  "create": "auth != null",
-  "update": "doc.user_id == auth.uid()",
-  "delete": "doc.user_id == auth.uid()"
-}
-```
+- 复习状态：以 `updated_at` 为准，后写覆盖先写（LWW，D22）。
+- 笔记：按 `id` 合并，`deleted=true` 视为删除。
+- 自建单词本：按书 `id` 合并；本地内容优先，与远端 JSON 有差异即回推。
+- 同步失败不阻塞启动，也不丢本地数据；下次回前台、启动或手动同步时重试。
+- 自动同步时机：启动一次；应用回到前台（Web 为标签页重新可见）时触发，60 秒冷却，手动「立即同步」不受限。
 
 ---
 
-## 5. 本地 drift DAO（✅ 应用内）
+## 3. 本地存储接口（🟢 已接入）
 
-### userWords DAO 示例
+统一入口 `ProgressStore`（`lib/data/progress_store.dart` 条件导出）：
+
+| 平台 | 实现 | 介质 |
+|---|---|---|
+| Android / iOS / Windows / macOS | `SqliteProgressStore` | sqlite3 手写 SQL |
+| Web | `WebProgressStore` | localStorage |
+| 兜底 / 测试 | `MemoryProgressStore` | 内存 |
+
+主要方法：
 
 ```dart
-// 在 lib/database/user_schema.dart
-@DriftDatabase(tables: [UserWords, Notes, UserTags, ...])
-class AppDatabase extends _$AppDatabase {
-  // ... 构造和 schemaVersion
-}
+Future<Map<String, ReviewState>> loadAll();
+Future<void> upsert(String wordKey, ReviewState state);
 
-class UserWordDao {
-  final AppDatabase _db;
-  UserWordDao(this._db);
+Future<List<NoteRecord>> loadNotes();          // 未删除
+Future<List<NoteRecord>> loadAllNotes();       // 含软删除，用于同步
+Future<NoteRecord> addNote(String wordKey, String content);
+Future<void> updateNote(String id, String content);
+Future<void> deleteNote(String id);            // 软删除
+Future<void> upsertNote(NoteRecord note);      // 同步落库
+Future<void> hardDeleteNote(String id);
 
-  /// 获取今日待复习的词
-  Future<List<UserWord>> getDueToday(DateTime today) {
-    return (_db.select(_db.userWords)
-      ..where((u) => u.nextReview.isSmallerOrEqualValue(today))
-      ..orderBy([(u) => OrderingTerm.asc(u.nextReview)])
-      ..limit(50))
-      .get();
-  }
+Future<List<Map<String, dynamic>>> loadCustomBooks();
+Future<void> saveCustomBooks(List<Map<String, dynamic>> books);
+Future<List<Map<String, dynamic>>> loadLegacyCustomWords();  // 旧扁平结构，仅迁移用
+Future<void> clearLegacyCustomWords();
 
-  /// 标记复习结果（SRS 后更新）
-  Future<void> updateAfterReview(String id, SRSResult result) async {
-    await (_db.update(_db.userWords)
-      ..where((u) => u.id.equals(id)))
-      .write(UserWordsCompanion(
-        interval: Value(result.interval),
-        easeFactor: Value(result.easeFactor),
-        repetitions: Value(result.repetitions),
-        nextReview: Value(result.nextReview),
-        updatedAt: Value(DateTime.now()),
-        version: Value(result.version),
-      ));
-  }
-}
+Future<void> recordStudy(String day, {required bool isNewWord});
+Future<List<DailyStat>> loadDaily();
+Future<void> clearAll();
 ```
+
+存储位置：
+
+| 平台 | 位置 / 键 |
+|---|---|
+| 原生 | 应用文档目录下 SQLite 文件；表 `review_state` / `note` / `daily_stat` / `meta` |
+| Web | `es_review_v1`、`es_notes_v1`、`es_books_v1`、`es_daily_v1`、`es_settings_v1` 等 localStorage 键；旧 `es_custom_v1` 启动时迁移，`es_favorites_v1` 直接清除 |
 
 ---
 
-## 6. 熔断接口状态
+## 4. 未接入的历史设计（仅存档）
 
-```dart
-class CircuitBreaker {
-  final int failureThreshold;  // 连续失败多少次熔断
-  final Duration openDuration; // 熔断时长
-  int _failures = 0;
-  DateTime? _openedAt;
+以下内容曾在早期设计或调研中出现，**当前代码中多数已不存在**，保留为避免误导与方便日后重开：
 
-  bool get isOpen {
-    if (_openedAt == null) return false;
-    return DateTime.now().difference(_openedAt!) < openDuration;
-  }
+- **有道 jsonapi 查词**：`dicts=ec.basic,phonetic`，实测约 90 ms。当年作为「自建词查释义」方案，后被「释义只来自打包词表 + 用户手填」（D16）取代。
+- **Free Dictionary API**：`https://api.dictionaryapi.dev/api/v2/entries/en/{word}`，实测 1.6 s/词，英音缺失率高，已随 `DictionaryService` 一起删除。
+- **系统 TTS 兜底**：已由 M5 重新接入 `flutter_tts`，见 D35。
+- **CloudBase Flutter SDK**：`cloudbase_flutter` 会带进 `shared_preferences` 等插件、且不含 `watch()`；改为 http 直连 PostgREST（D20 / ISSUE-020）。
+- **drift + drift_dev**：去掉代码生成环节，改手写 SQL（D11）。
+- **熔断器**：D10 曾定「有道 500 ms 超时 + 连续 3 次失败熔断 10 分钟」，实际未落地；现在发音失败只是静默跳过。
 
-  void recordSuccess() { _failures = 0; _openedAt = null; }
-  void recordFailure() {
-    _failures++;
-    if (_failures >= failureThreshold) {
-      _openedAt = DateTime.now();
-    }
-  }
-}
-
-// 默认配置：连续 3 次失败 → 熔断 10 分钟
-final youdaoBreaker = CircuitBreaker(
-  failureThreshold: 3,
-  openDuration: Duration(minutes: 10),
-);
-```
+需要这些接口的原始实测响应、字段说明与速率限制时，看 `docs/research/` 下的调研文档。

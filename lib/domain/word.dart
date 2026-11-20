@@ -56,31 +56,6 @@ class WordSynonym {
       );
 }
 
-/// 考试练习题（源数据无年份/试卷出处，不标"某年真题"）
-class QuizItem {
-  final String question;
-  final List<String> options;
-  final int answerIndex;
-  final String explain;
-
-  const QuizItem({
-    required this.question,
-    required this.options,
-    required this.answerIndex,
-    this.explain = '',
-  });
-
-  String get answerText =>
-      answerIndex >= 0 && answerIndex < options.length ? options[answerIndex] : '';
-
-  factory QuizItem.fromJson(Map<String, dynamic> j) => QuizItem(
-        question: (j['q'] ?? '') as String,
-        options: ((j['o'] ?? const []) as List).map((e) => '$e').toList(),
-        answerIndex: (j['a'] as num?)?.toInt() ?? 0,
-        explain: (j['e'] ?? '') as String,
-      );
-}
-
 class Word {
   final String w;
   final String uk;
@@ -90,7 +65,6 @@ class Word {
   final List<WordExample> phr;
   final List<WordRoot> rel;
   final List<WordSynonym> syn;
-  final List<QuizItem> quiz;
   final List<String> tags;
 
   const Word({
@@ -102,7 +76,6 @@ class Word {
     this.phr = const [],
     this.rel = const [],
     this.syn = const [],
-    this.quiz = const [],
     this.tags = const [],
   });
 
@@ -129,9 +102,6 @@ class Word {
             .toList(),
         syn: ((j['syn'] ?? const []) as List)
             .map((e) => WordSynonym.fromJson(e as Map<String, dynamic>))
-            .toList(),
-        quiz: ((j['quiz'] ?? const []) as List)
-            .map((e) => QuizItem.fromJson(e as Map<String, dynamic>))
             .toList(),
         tags: ((j['tags'] ?? const []) as List).cast<String>(),
       );

@@ -29,16 +29,22 @@ create table if not exists note (
   id          text        primary key,
   user_id     text        not null default 'me',
   word_key    text        not null,
+  title       text        not null default '',
   content     text        not null,
+  tags        text[]      not null default '{}',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   deleted     boolean     not null default false
 );
 
+-- 已建过旧表的库执行下面两句补列（v0.10 起笔记支持标题与标签）
+-- alter table note add column if not exists title text not null default '';
+-- alter table note add column if not exists tags text[] not null default '{}';
+
 create index if not exists note_user_idx
   on note (user_id, created_at desc);
 
--- ── 3. 键值数据（收藏、自建词库、设置）────────────────────
+-- ── 3. 键值数据（自建词、设置）───────────────────────────
 create table if not exists user_meta (
   user_id     text        not null default 'me',
   key         text        not null,

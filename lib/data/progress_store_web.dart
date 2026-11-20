@@ -3,8 +3,8 @@
 /// 存储键：
 ///   es_review_v1    -> { "word": {ease, interval, reps, lapses, due, updated_at} }
 ///   es_notes_v1     -> [ {id, word_key, content, created_at, updated_at, deleted} ]
-///   es_favorites_v1 -> ["word", ...]
-///   es_custom_v1    -> [ {w, defs:[...], ...} ]
+///   es_books_v1     -> [ {id, name, created_at, words:[{w, defs, added_at, add_count}]} ]
+///   es_custom_v1    -> 旧版扁平自建词，仅用于迁移
 library;
 
 import 'dart:convert';
@@ -13,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import 'package:web/web.dart' as web;
 
 import '../domain/srs.dart';
+import 'app_settings.dart';
 import 'daily_stat.dart';
 import 'note_record.dart';
 
@@ -20,21 +21,45 @@ abstract class ProgressStore {
   Future<Map<String, ReviewState>> loadAll();
   Future<void> upsert(String wordKey, ReviewState state);
 
+  /// 删除某个词的本地复习状态（词条被移除时使用）
+  Future<void> deleteState(String wordKey);
+
   Future<List<NoteRecord>> loadNotes();
   Future<List<NoteRecord>> loadAllNotes();
-  Future<NoteRecord> addNote(String wordKey, String content);
+  Future<NoteRecord> addNote(
+    String wordKey,
+    String content, {
+    String title = '',
+    List<String> tags = const [],
+  });
+
+  /// 编辑内容（保留创建时间）
+  Future<void> updateNote(
+    String id,
+    String content, {
+    String? title,
+    List<String>? tags,
+  });
   Future<void> deleteNote(String id);
   Future<void> upsertNote(NoteRecord note);
   Future<void> hardDeleteNote(String id);
 
-  Future<Set<String>> loadFavorites();
-  Future<void> saveFavorites(Set<String> keys);
+  Future<List<Map<String, dynamic>>> loadCustomBooks();
+  Future<void> saveCustomBooks(List<Map<String, dynamic>> books);
 
-  Future<List<Map<String, dynamic>>> loadCustomWords();
-  Future<void> saveCustomWords(List<Map<String, dynamic>> words);
+  /// 旧版扁平的「自建词」数据，仅用于一次性迁移
+  Future<List<Map<String, dynamic>>> loadLegacyCustomWords();
+  Future<void> clearLegacyCustomWords();
 
   Future<void> recordStudy(String day, {required bool isNewWord});
   Future<List<DailyStat>> loadDaily();
+
+  /// 合并每日记录：同一天取更大的计数，避免恢复备份时重复累加
+  Future<void> mergeDaily(List<DailyStat> stats);
+
+  Future<AppSettings> loadSettings();
+  Future<void> saveSettings(AppSettings settings);
+
   Future<void> clearAll();
 }
 
@@ -42,14 +67,22 @@ class LocalStorageProgressStore implements ProgressStore {
   static const _kReview = 'es_review_v1';
   static const _kNotes = 'es_notes_v1';
   static const _kFav = 'es_favorites_v1';
+  static const _kBooks = 'es_books_v1';
   static const _kCustom = 'es_custom_v1';
   static const _kDaily = 'es_daily_v1';
+  static const _kSettings = 'es_settings_v1';
 
   final Map<String, ReviewState> _cache = {};
   Map<String, NoteRecord>? _notes;
-  Set<String>? _favorites;
   List<Map<String, dynamic>>? _custom;
   Map<String, DailyStat>? _daily;
+
+  LocalStorageProgressStore() {
+    // 收藏功能已下线，清掉旧版本残留
+    try {
+      web.window.localStorage.removeItem(_kFav);
+    } catch (_) {}
+  }
 
   String? _read(String key) {
     try {
@@ -92,6 +125,15 @@ class LocalStorageProgressStore implements ProgressStore {
     );
   }
 
+  @override
+  Future<void> deleteState(String wordKey) async {
+    _cache.remove(wordKey);
+    _write(
+      _kReview,
+      jsonEncode({for (final e in _cache.entries) e.key: e.value.toJson()}),
+    );
+  }
+
   // ── 笔记 ──
 
   Map<String, NoteRecord> _loadNoteMap() {
@@ -128,18 +170,44 @@ class LocalStorageProgressStore implements ProgressStore {
       List.unmodifiable(_loadNoteMap().values.toList());
 
   @override
-  Future<NoteRecord> addNote(String wordKey, String content) async {
+  Future<NoteRecord> addNote(
+    String wordKey,
+    String content, {
+    String title = '',
+    List<String> tags = const [],
+  }) async {
     final now = DateTime.now();
     final note = NoteRecord(
       id: const Uuid().v4(),
       wordKey: wordKey,
+      title: title,
       content: content,
+      tags: tags,
       createdAt: now,
       updatedAt: now,
     );
     _loadNoteMap()[note.id] = note;
     _flushNotes();
     return note;
+  }
+
+  @override
+  Future<void> updateNote(
+    String id,
+    String content, {
+    String? title,
+    List<String>? tags,
+  }) async {
+    final map = _loadNoteMap();
+    final n = map[id];
+    if (n == null) return;
+    map[id] = n.copyWith(
+      content: content,
+      title: title,
+      tags: tags,
+      updatedAt: DateTime.now(),
+    );
+    _flushNotes();
   }
 
   @override
@@ -163,39 +231,14 @@ class LocalStorageProgressStore implements ProgressStore {
     _flushNotes();
   }
 
-  // ── 收藏 ──
+  // ── 自建单词本 ──
 
   @override
-  Future<Set<String>> loadFavorites() async {
-    final cached = _favorites;
-    if (cached != null) return Set.of(cached);
-    final raw = _read(_kFav);
-    final set = <String>{};
-    if (raw != null && raw.isNotEmpty) {
-      try {
-        for (final e in jsonDecode(raw) as List) {
-          set.add(e.toString());
-        }
-      } catch (_) {}
-    }
-    _favorites = set;
-    return Set.of(set);
-  }
-
-  @override
-  Future<void> saveFavorites(Set<String> keys) async {
-    _favorites = Set.of(keys);
-    _write(_kFav, jsonEncode(keys.toList()));
-  }
-
-  // ── 自建词 ──
-
-  @override
-  Future<List<Map<String, dynamic>>> loadCustomWords() async {
+  Future<List<Map<String, dynamic>>> loadCustomBooks() async {
     final cached = _custom;
     if (cached != null) return List.unmodifiable(cached);
-    final raw = _read(_kCustom);
     final list = <Map<String, dynamic>>[];
+    final raw = _read(_kBooks);
     if (raw != null && raw.isNotEmpty) {
       try {
         for (final e in jsonDecode(raw) as List) {
@@ -208,9 +251,30 @@ class LocalStorageProgressStore implements ProgressStore {
   }
 
   @override
-  Future<void> saveCustomWords(List<Map<String, dynamic>> words) async {
-    _custom = List.of(words);
-    _write(_kCustom, jsonEncode(words));
+  Future<void> saveCustomBooks(List<Map<String, dynamic>> books) async {
+    _custom = List.of(books);
+    _write(_kBooks, jsonEncode(books));
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> loadLegacyCustomWords() async {
+    final list = <Map<String, dynamic>>[];
+    final raw = _read(_kCustom);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        for (final e in jsonDecode(raw) as List) {
+          list.add(e as Map<String, dynamic>);
+        }
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  @override
+  Future<void> clearLegacyCustomWords() async {
+    try {
+      web.window.localStorage.removeItem(_kCustom);
+    } catch (_) {}
   }
 
   Map<String, DailyStat> _loadDailyMap() {
@@ -254,13 +318,57 @@ class LocalStorageProgressStore implements ProgressStore {
   }
 
   @override
+  Future<void> mergeDaily(List<DailyStat> stats) async {
+    final map = _loadDailyMap();
+    for (final s in stats) {
+      final cur = map[s.date];
+      if (cur == null) {
+        map[s.date] = s;
+        continue;
+      }
+      map[s.date] = DailyStat(
+        date: s.date,
+        reviews: cur.reviews > s.reviews ? cur.reviews : s.reviews,
+        newWords: cur.newWords > s.newWords ? cur.newWords : s.newWords,
+      );
+    }
+    _write(
+      _kDaily,
+      jsonEncode({for (final e in map.entries) e.key: e.value.toJson()}),
+    );
+  }
+
+  @override
+  Future<AppSettings> loadSettings() async {
+    final raw = _read(_kSettings);
+    if (raw == null || raw.isEmpty) return const AppSettings();
+    try {
+      return AppSettings.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      return const AppSettings();
+    }
+  }
+
+  @override
+  Future<void> saveSettings(AppSettings settings) async {
+    _write(_kSettings, jsonEncode(settings.toJson()));
+  }
+
+  @override
   Future<void> clearAll() async {
     _cache.clear();
     _notes = {};
-    _favorites = {};
     _custom = [];
     _daily = {};
-    for (final k in [_kReview, _kNotes, _kFav, _kCustom, _kDaily]) {
+    for (final k in [
+      _kReview,
+      _kNotes,
+      _kFav,
+      _kBooks,
+      _kCustom,
+      _kDaily,
+      _kSettings,
+    ]) {
       try {
         web.window.localStorage.removeItem(k);
       } catch (_) {}

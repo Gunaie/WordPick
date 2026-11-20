@@ -1,9 +1,12 @@
 /// 看义拼写的分级提示生成（纯函数，便于单测）
 ///
-/// 三级递进：首字母 → 音节数 → 词根拆解。
+/// 递进提示：首字母 → 音节数 → 词根拆解 → 四选一。
 library;
 
+import 'dart:math';
+
 import 'affix.dart';
+import 'word.dart';
 
 /// 首字母 + 下划线占位，揭示词长。
 ///
@@ -56,4 +59,48 @@ String affixBreakdownHint(
   final matches = analyzeWord(word, affixes, isKnownWord: isKnownWord);
   if (matches.isEmpty) return '';
   return matches.map((m) => m.segment).join(' + ');
+}
+
+/// 四选一提示：正确拼写 + 3 个干扰项；词池不足 4 个不同拼写时返回 null。
+///
+/// 干扰项优先取同首字母的词，其次取长度接近的词，让选项更有区分难度。
+/// 例：`resilient` → `[resilient, rely, reject, ...]`（顺序随机）。
+List<String>? buildSpellingChoices(
+  Word word,
+  List<Word> pool, {
+  Random? random,
+}) {
+  final correct = word.w.trim();
+  if (correct.isEmpty) return null;
+
+  final r = random ?? Random();
+  final seen = <String>{correct.toLowerCase()};
+  final sameStart = <String>[];
+  final similarLength = <String>[];
+  final others = <String>[];
+
+  for (final w in pool) {
+    final s = w.w.trim();
+    if (s.isEmpty || !seen.add(s.toLowerCase())) continue;
+    if (s[0].toLowerCase() == correct[0].toLowerCase()) {
+      sameStart.add(s);
+    } else if ((s.length - correct.length).abs() <= 2) {
+      similarLength.add(s);
+    } else {
+      others.add(s);
+    }
+  }
+
+  sameStart.shuffle(r);
+  similarLength.shuffle(r);
+  others.shuffle(r);
+
+  final picked = <String>[];
+  for (final s in [...sameStart, ...similarLength, ...others]) {
+    picked.add(s);
+    if (picked.length == 3) break;
+  }
+  if (picked.length < 3) return null;
+
+  return ([correct, ...picked]..shuffle(r));
 }

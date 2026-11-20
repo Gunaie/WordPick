@@ -14,7 +14,8 @@ hello:你好
   spaced  带前导空格
 ''';
 
-  final words = parseCustomWords(text, exclude: {'hello'});
+  final words =
+      parseCustomWordsDetailed(text, repeatable: {'hello'}).added;
 
   print('解析结果: ${words.length} 条');
   for (final w in words) {

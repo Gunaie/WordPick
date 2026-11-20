@@ -1,318 +1,171 @@
 # 编码约定
 
-> Dart + Flutter + Riverpod + drift + CloudBase 的项目特定约定。
-> 参考：Dart 官方 style guide（https://dart.dev/effective-dart）+ Flutter architecture recommendations
+> 适用于本仓库（Flutter 3.50 + material_ui + ChangeNotifier + sqlite3/PostgREST）。
+> 通用风格参考 Dart 官方 [Effective Dart](https://dart.dev/effective-dart)。
+> **注意**：早期文档里写的 Riverpod / drift / CloudBase SDK 均未采用，见 `decisions.md` D11 / D12 / D20。
 
 ---
 
-## 项目工具链
+## 1. 技术栈基线
 
-| 工具 | 版本 | 用途 |
+| 项 | 当前值 | 备注 |
 |---|---|---|
-| Flutter SDK | 最新稳定（≥ 3.22.0） | `flutter --version` 确认 |
-| Dart SDK | 随 Flutter | 不要单独装 |
-| drift_dev | ≥ 2.20.0 | `dart run drift_dev build` 生成 drift 代码 |
-| CloudBase CLI | 可选 | `npm install -g @cloudbase/cli` |
-| IDE | VS Code + Flutter 插件 | 推荐 |
+| Flutter | 3.50.0（`E:\flutter_sdk\flutter`） | 命令需带 `--no-pub`，见第 7 节 |
+| UI 库 | `package:material_ui/material_ui.dart` | **不要** import `package:flutter/material.dart`（3.50 起已弃用，ISSUE-026） |
+| 状态管理 | `ChangeNotifier` + `ListenableBuilder` | 全局单例 `AppState`，不引入 Riverpod |
+| 本地存储 | `sqlite3` 手写 SQL / Web `localStorage` | 条件导出，见 `lib/data/progress_store.dart` |
+| 云端 | `http` 直连 CloudBase PostgREST | `lib/data/cloud_sync.dart` |
+| HTTP | `http` | 不用 dio |
+| 音频 | `audioplayers` + 有道 dictvoice | `lib/services/audio_service.dart` |
 
-### 初始化命令（新克隆的环境）
-
-```bash
-flutter pub get                        # 拉依赖
-dart run drift_dev build               # 生成 drift .dart 文件
-flutter create . --platforms=windows,macos,web   # 如缺少平台目录
-flutter run -d windows                 # 跑起来验证
-```
+新增依赖前先问：能否用现有包 + 手写少量代码解决？本项目刻意保持依赖精简。
 
 ---
 
-## 文件命名
+## 2. 文件与命名
 
 | 类型 | 规则 | 例子 |
 |---|---|---|
-| Dart 文件 | `snake_case.dart` | `dictionary_service.dart` |
-| drift schema | `xxx_schema.dart` | `word_schema.dart` |
-| drift 生成文件 | `.drift.dart`（自动生成） | `app_database.drift.dart` |
-| 测试文件 | `xxx_test.dart`（同目录 `test/` 下） | `dictionary_service_test.dart` |
-| 资源文件 | `snake_case.ext` | `cet4_core_2000.json` |
-| Riverpod Provider | `xxxProvider` / `xxxNotifier` | `cloudBaseClientProvider` |
-| 领域模型 | `PascalCase` | `UserWord`, `ReviewFeedback` |
+| Dart 文件 | `snake_case.dart` | `custom_word_parser.dart` |
+| 页面 | `xxx_page.dart`，类名 `XxxPage` | `word_book_page.dart` |
+| 数据层 | `xxx_store.dart` / `xxx_repository.dart` / `xxx_sync.dart` | `progress_store_native.dart` |
+| 领域逻辑 | 放 `lib/domain/`，纯 Dart，无 IO | `srs.dart`、`edit_distance.dart` |
+| 测试 | `test/widget_test.dart`（单文件汇总） | — |
+| 脚本 | `*.cmd`，**内容必须是纯 ASCII** | `build_apk.cmd` |
 
-### 单文件单类
-
-> 一个文件只放一个 `class`，文件名 = 类名（snake_case）。
-> 例外：小的 data class（<3 个字段）可以放同文件。
-
-```dart
-// ✅ 好
-// review_feedback.dart
-class ReviewFeedback { ... }
-
-// ❌ 不好：多个类放一个文件
-// feedback.dart
-class ReviewFeedback { ... }
-class SpellingFeedback { ... }
-```
+- 一个文件一个主要类；**配套的小模型 / 异常类可以同文件**（如 `cloud_sync.dart` 里的 `SyncException`、`custom_word_parser.dart` 里的 `CustomWordEntry` / `CustomWordBook`）。
+- 领域模型用 `PascalCase`；私有字段 `_camelCase`；JSON 键统一 `snake_case`。
+- 文件顶部写 `///` 库注释说明职责，重要的“为什么不这么做”要写清（本项目多处依赖这类注释）。
 
 ---
 
-## 代码风格
-
-### 必须遵循
+## 3. 代码风格
 
 ```dart
-// 字符串用单引号
-final message = 'hello';        // ✅
-final message = "hello";        // ❌
+// 单引号
+final msg = 'hello';
 
-// 大括号不省略（哪怕单语句）
-if (isValid) {                  // ✅
-  return result;
+// 大括号不省略
+if (ok) {
+  return value;
 }
-if (isValid) return result;     // ❌
 
-// 每行最多 80 字符（可选，团队共识）
-// 链式调用换行时用前导点
+// 优先 const
+const SizedBox(height: 8);
+
+// 链式调用换行用前导点
 future
-  .then(a)
-  .then(b)
-  .catchError(handle);
-
-// 优先用 const 构造函数
-const SizedBox(height: 8)       // ✅
-SizedBox(height: 8)             // ❌ 如非必须
-
-// null safety：不要用 late 除非确实需要延迟初始化
-// Riverpod Notifier 的 state 初始值给好
+    .then(a)
+    .catchError(handle);
 ```
 
-### Riverpod 约定
-
-```dart
-// ✅ Provider 定义放在 core/di/ 对应文件里
-// ❌ 不要在 UI 文件里定义 Provider
-
-// 定义风格（新 Riverpod v2 语法）
-final driftDatabaseProvider = Provider<AppDatabase>((ref) {
-  return AppDatabase();
-});
-
-// Notifier 风格
-final reviewControllerProvider =
-    NotifierProvider<ReviewController, ReviewState>(ReviewController.new);
-
-// ConsumerWidget 用法（简单场景）
-class WordCard extends ConsumerWidget {
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(reviewControllerProvider);
-    return ...;
-  }
-}
-```
-
-### drift 约定
-
-```dart
-// schema 里用 drift 内置类型，不要用 dart:ffi
-
-// 表名：snake_case
-class UserWords extends Table {
-  TextColumn get id => text()();
-  TextColumn get userId => text().named('user_id')();
-  DateTimeColumn get nextReview => dateTime().named('next_review')();
-  IntColumn get interval => integer()();
-}
-
-// 查询用 DAO，不要手写 SQL
-class WordDao {
-  Future<List<UserWord>> getDueToday(DateTime date) {
-    return (select(userWords)
-      ..where((u) => u.nextReview.isSmallerOrEqualValue(date)))
-      .get();
-  }
-}
-
-// 生成命令
-dart run drift_dev build --delete-conflicting-outputs
-```
+- 注释、UI 文案、文档一律中文；变量 / 类名英文。
+- 避免 `late`，除非确实需要延迟初始化。
+- 不给未改动的代码补注释、补类型。
+- 不写“以防万一”的兜底分支；只在系统边界（网络、用户输入、文件）做校验。
 
 ---
 
-## 错误处理
+## 4. 状态管理约定
 
-### 词典 API 调用（核心场景）
-
-```dart
-class DictionaryService {
-  final Logger _logger = Logger('DictionaryService');
-
-  Future<Result<WordData>> fetch(String word) async {
-    // 1. 本地缓存
-    final cached = await _cache.get(word);
-    if (cached != null) return Result.ok(cached);
-
-    // 2. 有道（带超时 + 熔断）
-    if (!_circuitBreaker.isOpen) {
-      try {
-        final data = await _youdao.fetch(word)
-            .timeout(const Duration(milliseconds: 500));
-        await _cache.save(word, data);
-        _circuitBreaker.recordSuccess();
-        return Result.ok(data);
-      } catch (e) {
-        _logger.w('有道失败: $word', e);
-        _circuitBreaker.recordFailure();
-      }
-    }
-
-    // 3. Free Dictionary fallback
-    try {
-      final data = await _freeDict.fetch(word)
-          .timeout(const Duration(milliseconds: 500));
-      await _cache.save(word, data);
-      return Result.ok(data);
-    } catch (e) {
-      _logger.w('FD fallback 失败: $word', e);
-    }
-
-    // 4. 返回错误，不要 silent fail
-    return Result.err(DictionaryException.notFound(word));
-  }
-}
-```
-
-### 统一 Result 类型
-
-```dart
-// 不要到处 try/catch + 返回 null
-// 用 sealed class 包装结果
-sealed class Result<T> {
-  const Result();
-  bool get isOk => this is Ok<T>;
-  bool get isErr => this is Err<T>;
-}
-
-final class Ok<T> extends Result<T> {
-  final T value;
-  const Ok(this.value);
-}
-
-final class Err<T> extends Result<T> {
-  final Exception exception;
-  const Err(this.exception);
-}
-```
+- 全局状态只有 `AppState`（`lib/app_state.dart`），页面通过构造函数接收 `state`，再用 `ListenableBuilder` 订阅。
+- **业务编排写在 `AppState`**，页面只负责展示与交互；不要在 UI 文件里散落持久化代码。
+- 改动内存状态后必须 `notifyListeners()`；需要落盘的走 `_persist*()` 统一入口。
+- 写操作顺序固定：**先更新内存 → 落本地 → 再异步推云端**（推送失败只记录，不影响本地）。
+- 新增字段时同步检查：`_load*()` 初始化、`_persist*()` 保存、`_syncMeta()` 合并三处。
 
 ---
 
-## Git 约定
+## 5. 数据与同步约定
 
-### Commit Message
+- 复习状态：`ReviewState`（`ease` / `interval` / `reps` / `lapses` / `due` / `updatedAt`），SM-2 在 `lib/domain/srs.dart`。
+- 笔记：UUID 主键 + 软删除（`deleted`），同步时必须连带已删除记录。
+- 自建单词本：`custom_books` 为 `user_meta` 里的 JSON 数组，按书 `id` 合并；本地内容优先，与远端不一致才回推。
+- 所有云端表操作都必须带 `user_id` 过滤；`CloudSync` 已统一处理，不要绕过它直接发请求。
+- 新增 / 修改表结构时，同步更新 `docs/cloudbase_schema.sql` 与 `docs/api.md`。
+
+---
+
+## 6. 错误处理
+
+- 只分两类：**可恢复** → 提示用户后继续；**不可恢复** → 抛出带上下文的异常。
+- 网络同步失败：抛 `SyncException(message, statusCode)`，调用方决定是否提示；不阻塞启动。
+- 音频播放失败：静默忽略（学习流程优先），不加弹窗。
+- 不要用 `null` 表示错误；不要到处 `try/catch` 后返回空值。
+- 用户可感知的错误必须给中文文案，避免直接抛英文异常给用户。
+
+---
+
+## 7. 构建与验证（重要）
+
+| 场景 | 命令 | 注意 |
+|---|---|---|
+| 依赖解析 | `dart pub get` | **不要用** `flutter pub get`（插件符号链接会失败，ISSUE-027） |
+| 静态检查 | `flutter analyze --no-pub` | 应为 `No issues found` |
+| 单元测试 | `flutter test --no-pub` | 当前 32 项全过 |
+| 本机预览 | 双击 `preview_web.cmd` | Edge + 端口 8091，构建目录在 `%TEMP%` |
+| 打包 APK | 双击 `build_apk.cmd` | 产物 `E:\APK\app-release.apk`；**仅用户明确要求时才打包** |
+
+agent 在 shell 里调用 Flutter 时，必须用独立控制台启动，否则会卡死（ISSUE-024）：
+
+```powershell
+Start-Process -FilePath 'E:\flutter_sdk\flutter\bin\flutter.bat' `
+  -ArgumentList 'analyze','--no-pub' -PassThru -WindowStyle Hidden `
+  -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+```
+
+且需要 `dangerouslyDisableSandbox: true`（SDK 与 Pub 缓存在沙箱白名单外）。
+构建产物不要落在工作区 `build/`（文件监视器会回收，ISSUE-025 / ISSUE-029）。
+
+---
+
+## 8. Git 约定
+
+提交信息沿用 Conventional Commits：
 
 ```
 <type>(<scope>): <subject>
 
-type: feat | fix | refactor | docs | chore | test | build
-scope: words | srs | sync | dict | ui | infra
+type:  feat | fix | refactor | docs | chore | test | build
+scope: words | srs | spelling | sync | store | ui | docs | build
 
 示例:
-  feat(words): 实现听音拼写的 typo 容错
-  fix(sync): 修复 offline 时 pending 队列不重试
-  refactor(srs): SM-2 调度器抽出单独 Service
-  docs: 更新 architecture.md 同步 D02 决策
+  feat(ui): 自建单词本支持重命名与批量导入
+  fix(sync): 自建单词本按 id 合并，避免离线修改被覆盖
+  docs: 校准 api.md 与 conventions.md 到当前实现
 ```
 
-### Branch 策略
-
-```
-main          —— 永远可发布
-develop       —— 集成分支（每日合并）
-feature/xxx   —— 功能分支（从 develop 切）
-fix/xxx       —— bug 修复分支
-hotfix/xxx    —— 紧急修复（从 main 切）
-```
-
-### .gitignore 关键项
-
-```
-# drift 生成
-*.drift.dart
-
-# IDE
-.vscode/
-.idea/
-
-# Flutter
-build/
-.dart_tool/
-.packages
-
-# CloudBase 配置（含 Secret，绝对不能提交）
-cloudbaserc.json
-.env*
-```
+- 不提交：`build/`、`.dart_tool/`、`*.iml`、`.env*`、`cloudbaserc.json`。
+- 密钥只允许 anon Publishable Key 出现在 `lib/data/sync_config.dart`，`service_role` 永不入库。
+- 提交 / 推送 / 改写历史仅在用户明确要求时执行。
 
 ---
 
-## 测试约定
+## 9. 测试约定
 
-### 分层测试策略
-
-| 层 | 什么要测 | 怎么测 |
+| 类型 | 范围 | 位置 |
 |---|---|---|
-| **Service / SRS** | SM-2 调度结果正确、词典熔断逻辑 | `flutter_test` 纯单元测试 |
-| **Repository** | drift 查询正确、序列化正确 | `mocktail` 或内存 drift |
-| **UI / Widget** | 基本渲染不崩、按钮点击有反应 | `flutter_test` Widget Test |
-| **CloudBase 集成** | watch() 推送正常 | 手动测 + CloudBase 模拟器 |
+| 纯逻辑单测 | SM-2、编辑距离、拼写提示、自建词解析、JSON 往返 | `test/widget_test.dart` |
+| Widget 冒烟 | 页面能构建、关键文案存在 | 同上 |
+| 手工验证 | 发音、同步、真机交互 | 电脑端预览或真机 |
 
-### 必须写测试的模块
-
-- SM-2 调度器（边界值：interval 计算、E-Factor 调整）
-- 词典 Service（三源切换逻辑、熔断）
-- 拼写 typo 容错（编辑距离计算）
-- SyncManager（offline 队列行为）
+- 新逻辑优先写成 `lib/domain/` 里的纯函数，方便无 Flutter 依赖地测试。
+- 改动持久化 / 序列化 / 解析逻辑时，必须补一条往返或兼容性测试。
+- 提交前至少跑 `flutter analyze --no-pub` 与 `flutter test --no-pub`。
 
 ---
 
-## 性能约定
+## 10. 文档约定
 
-| 指标 | 目标 | 手段 |
+| 文件 | 该写什么 | 不该写什么 |
 |---|---|---|
-| 词典首屏 | < 1s | 有道 90ms + 本地缓存 |
-| 复习切卡 | < 100ms | 数据全本地 drift |
-| 启动到首页 | < 2s | 静态词表打包 + bootstrap 异步 |
-| 音频播放延迟 | < 200ms | audioplayers preload |
-| 离线可用 | 100% | drift 优先 + pending 队列 |
+| `README.md` | 功能表、目录树、环境、常用命令 | 详细设计 |
+| `docs/architecture.md` | **当前实现**的技术栈、目录、数据流、表结构 | 未落地的设想 |
+| `docs/api.md` | 实际调用的接口 + 明确标注“未接入”的历史方案 | 把设计稿写成已实现 |
+| `docs/decisions.md` | 决策记录 Dxx，只追加不改写 | 删除历史 |
+| `docs/known-issues.md` | 坑与规避，已修复的保留 | 无证据的猜测 |
+| `PROJECT_MEMORY.md` | 每次开发会话的经验沉淀 | 与代码重复的手册 |
+| `docs/research/` | 早期调研原始结论，**只存档** | 当成现状文档引用 |
 
----
-
-## 数据迁移约定
-
-### drift Schema 变更流程
-
-```dart
-// 1. 在 schema 里加新列 / 新表（不要删已有）
-// 2. 写 Migration
-MigrationStrategy get migration => MigrationStrategy(
-  onCreate: (m) async { await m.createAll(); },
-  onUpgrade: (m, from, to) async {
-    if (from < 2) {
-      await m.addColumn(userWords, userWords.spellingCount);
-    }
-  },
-);
-
-// 3. bump drift_dev build
-// 4. 部署新版本前：旧版本用户启动时自动迁移
-```
-
-### 静态词表更新
-
-```bash
-# 每年 1-2 次，考纲变化时
-cd scripts
-dart run import_words.dart \
-  --input ../assets/data/words.csv \
-  --output ../assets/data/words.json
-```
+写文档的第一原则：**读者要能通过文档判断“这段代码现在到底在做什么”**。
+未接入的东西必须显式写「未接入」，并指向决策编号。

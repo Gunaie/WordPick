@@ -130,7 +130,9 @@ class CloudSync {
           'id': n.id,
           'user_id': SyncConfig.userId,
           'word_key': n.wordKey,
+          'title': n.title,
           'content': n.content,
+          'tags': n.tags,
           'created_at': n.createdAt.toIso8601String(),
           'updated_at': n.updatedAt.toIso8601String(),
           'deleted': n.deleted,
@@ -142,7 +144,7 @@ class CloudSync {
     _ensureSuccess(r, '上传笔记');
   }
 
-  // ── 键值数据（收藏 / 自建词 / 设置） ────────────────────
+  // ── 键值数据（自建词 / 设置） ──────────────────────────
 
   Future<Map<String, String>> pullMeta() async {
     final r = await _client
@@ -174,6 +176,14 @@ class CloudSync {
         .post(_uri('user_meta'), headers: _headers, body: jsonEncode(body))
         .timeout(_timeout);
     _ensureSuccess(r, '上传配置');
+  }
+
+  /// 删除某个键值（用于清理已下线功能的残留数据）
+  Future<void> deleteMeta(String key) async {
+    final r = await _client
+        .delete(_uri('user_meta', {'key': 'eq.$key'}), headers: _headers)
+        .timeout(_timeout);
+    _ensureSuccess(r, '删除 $key');
   }
 
   /// 清空本用户在云端的全部数据（不可撤销）
