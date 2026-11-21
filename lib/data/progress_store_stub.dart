@@ -48,6 +48,10 @@ abstract class ProgressStore {
   Future<List<Map<String, dynamic>>> loadCustomBooks();
   Future<void> saveCustomBooks(List<Map<String, dynamic>> books);
 
+  /// 易混词组（内存 JSON 列表）
+  Future<List<Map<String, dynamic>>> loadConfusableGroups();
+  Future<void> saveConfusableGroups(List<Map<String, dynamic>> groups);
+
   /// 旧版扁平的「自建词」数据，仅用于一次性迁移
   Future<List<Map<String, dynamic>>> loadLegacyCustomWords();
   Future<void> clearLegacyCustomWords();
@@ -72,6 +76,7 @@ class MemoryProgressStore implements ProgressStore {
   final Map<String, ReviewState> _states = {};
   final Map<String, NoteRecord> _notes = {};
   List<Map<String, dynamic>> _books = [];
+  List<Map<String, dynamic>> _groups = [];
   List<Map<String, dynamic>> _legacyWords = [];
   final Map<String, DailyStat> _daily = {};
   AppSettings _settings = const AppSettings();
@@ -163,6 +168,15 @@ class MemoryProgressStore implements ProgressStore {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> loadConfusableGroups() async =>
+      List.unmodifiable(_groups);
+
+  @override
+  Future<void> saveConfusableGroups(List<Map<String, dynamic>> groups) async {
+    _groups = List.of(groups);
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> loadLegacyCustomWords() async =>
       List.unmodifiable(_legacyWords);
 
@@ -217,6 +231,7 @@ class MemoryProgressStore implements ProgressStore {
     _states.clear();
     _notes.clear();
     _books = [];
+    _groups = [];
     _legacyWords = [];
     _daily.clear();
     _settings = const AppSettings();

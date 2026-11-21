@@ -644,7 +644,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             dense: true,
                             title: const Text('版本'),
                             trailing: Text(
-                              'v0.14',
+                              'v0.18',
                               style: theme.textTheme.bodySmall,
                             ),
                           ),

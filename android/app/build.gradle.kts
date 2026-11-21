@@ -47,3 +47,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // ML Kit 中文识别模型：Flutter 插件里只声明为 compileOnly，需应用显式打包
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
+}

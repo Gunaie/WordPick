@@ -17,6 +17,8 @@ import 'data/daily_stat.dart';
 import 'data/dictionary_repository.dart';
 import 'data/progress_store.dart';
 import 'data/sync_config.dart';
+import 'domain/confusable_group.dart';
+import 'domain/confusable_queue.dart';
 import 'domain/custom_word_parser.dart';
 import 'domain/export_import.dart';
 import 'domain/srs.dart';
@@ -55,6 +57,7 @@ class AppState extends ChangeNotifier {
 
   Map<String, ReviewState> _states = {};
   List<CustomWordBook> _customBooks = [];
+  List<ConfusableGroup> _groups = [];
   List<NoteRecord> _notes = [];
   List<DailyStat> _daily = [];
   AppSettings _settings = const AppSettings();
@@ -80,6 +83,7 @@ class AppState extends ChangeNotifier {
 
   Map<String, ReviewState> get states => Map.unmodifiable(_states);
   List<CustomWordBook> get customBooks => List.unmodifiable(_customBooks);
+  List<ConfusableGroup> get confusableGroups => List.unmodifiable(_groups);
 
   /// 所有自建单词本里的词
   List<CustomWordEntry> get customWords =>
@@ -148,6 +152,9 @@ class AppState extends ChangeNotifier {
       _settings = await _store.loadSettings();
       AudioService.isUk = _settings.useUkAccent;
       await _loadCustomBooks();
+      _groups = (await _store.loadConfusableGroups())
+          .map(ConfusableGroup.fromJson)
+          .toList();
       _ready = true;
     } catch (e) {
       _error = '$e';
@@ -421,6 +428,25 @@ class AppState extends ChangeNotifier {
       push['custom_books'] = jsonEncode(_booksData(merged.values));
     }
 
+    // 易混词组：与词书一致，按 id 取并集、本地优先
+    final remoteGroups = _decodeGroups(remoteMeta['confusable_groups']);
+    final remoteGroupById = {for (final g in remoteGroups) g.id: g};
+    final localGroupById = {for (final g in _groups) g.id: g};
+    final mergedGroups = {...remoteGroupById, ...localGroupById};
+
+    if (remoteGroupById.keys.any((k) => !localGroupById.containsKey(k))) {
+      _groups = mergedGroups.values.toList();
+      await _store.saveConfusableGroups(_groupsData());
+    }
+    final groupsChanged = localGroupById.entries.any((e) {
+      final r = remoteGroupById[e.key];
+      return r == null ||
+          jsonEncode(r.toJson()) != jsonEncode(e.value.toJson());
+    });
+    if (groupsChanged) {
+      push['confusable_groups'] = jsonEncode(_groupsData(mergedGroups.values));
+    }
+
     if (push.isNotEmpty) await sync.pushMeta(push);
     if (remoteMeta.containsKey('custom_words')) {
       try {
@@ -443,6 +469,11 @@ class AppState extends ChangeNotifier {
   List<CustomWordBook> _decodeBooks(String? raw) => _decodeList(raw)
       .map(CustomWordBook.fromJson)
       .where((b) => b.id.isNotEmpty)
+      .toList();
+
+  List<ConfusableGroup> _decodeGroups(String? raw) => _decodeList(raw)
+      .map(ConfusableGroup.fromJson)
+      .where((g) => g.id.isNotEmpty && g.wordKeys.length >= 2)
       .toList();
 
   String _booksJson() => jsonEncode(_booksData());
@@ -513,8 +544,11 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
-  /// 今日队列：到期复习 + 新词
-  List<Word> buildTodayQueue({int newLimit = 20, int dueLimit = 20}) {
+  /// 今日队列：到期复习 + 新词，并把易混组同伴紧接插入。
+  ///
+  /// 关联插入占用本轮上限（`dueLimit + newLimit`），从尾部挤占新词，
+  /// 不额外加长队列，也不链式触发其他组。
+  ConfusableRound buildTodayQueue({int newLimit = 20, int dueLimit = 20}) {
     final dueKeys =
         _states.entries.where((e) => e.value.isDue).map((e) => e.key).toSet();
     final seen = _states.keys.toSet();
@@ -531,7 +565,13 @@ class AppState extends ChangeNotifier {
       fresh.add(w);
       if (fresh.length >= newLimit) break;
     }
-    return [...dueWords, ...fresh];
+    return buildConfusableRound(
+      dueWords: dueWords,
+      freshWords: fresh,
+      groups: _groups,
+      poolByKey: {for (final w in pool) w.key: w},
+      maxLength: dueLimit + newLimit,
+    );
   }
 
   Future<ReviewState> grade(Word word, ReviewGrade g) async {
@@ -553,11 +593,7 @@ class AppState extends ChangeNotifier {
 
   // ── 笔记 ──
 
-  List<NoteRecord> notesFor(String wordKey) =>
-      _notes.where((n) => n.wordKey == wordKey).toList();
-
-  Future<void> addNoteByKey(
-    String wordKey,
+  Future<void> addNote(
     String content, {
     String title = '',
     List<String> tags = const [],
@@ -566,7 +602,7 @@ class AppState extends ChangeNotifier {
     final heading = title.trim();
     if (text.isEmpty && heading.isEmpty) return;
     final note = await _store.addNote(
-      wordKey.trim().toLowerCase(),
+      '',
       text,
       title: heading,
       tags: _cleanTags(tags),
@@ -680,6 +716,7 @@ class AppState extends ChangeNotifier {
         await _store.deleteState(key);
       }
     }
+    await _pruneConfusableGroups();
     notifyListeners();
   }
 
@@ -790,6 +827,7 @@ class AppState extends ChangeNotifier {
       await _store.deleteState(k);
       notifyListeners();
     }
+    await _pruneConfusableGroups();
   }
 
   void _replaceBook(CustomWordBook book) {
@@ -804,12 +842,107 @@ class AppState extends ChangeNotifier {
     unawaited(_pushMetaValue('custom_books', _booksJson()));
   }
 
+  // ── 易混词组 ──
+
+  ConfusableGroup? confusableGroupById(String id) {
+    for (final g in _groups) {
+      if (g.id == id) return g;
+    }
+    return null;
+  }
+
+  /// 新建或修改易混词组；失败时返回提示文案。
+  ///
+  /// [wordKeys] 必须是词池里存在的 2–4 个词；[name] 留空时自动用词形拼接。
+  Future<String?> saveConfusableGroup({
+    String? id,
+    required String name,
+    required List<String> wordKeys,
+  }) async {
+    final keys = <String>[];
+    for (final raw in wordKeys) {
+      final key = raw.trim().toLowerCase();
+      if (key.isNotEmpty && !keys.contains(key)) keys.add(key);
+    }
+    if (keys.length < 2) return '至少选择 2 个词';
+    if (keys.length > 4) return '最多选择 4 个词';
+    for (final key in keys) {
+      if (findWord(key) == null) return '「$key」不在单词本中';
+    }
+
+    final text = name.trim();
+    final display = text.isNotEmpty
+        ? text
+        : keys.map((k) => findWord(k)?.w ?? k).join(' / ');
+
+    if (id == null || confusableGroupById(id) == null) {
+      _groups = [
+        ..._groups,
+        ConfusableGroup(
+          id: const Uuid().v4(),
+          name: display,
+          wordKeys: keys,
+          createdAt: DateTime.now(),
+        ),
+      ];
+    } else {
+      _groups = [
+        for (final g in _groups)
+          g.id == id ? g.copyWith(name: display, wordKeys: keys) : g,
+      ];
+    }
+    await _persistGroups();
+    return null;
+  }
+
+  Future<void> deleteConfusableGroup(String id) async {
+    _groups = [
+      for (final g in _groups)
+        if (g.id != id) g,
+    ];
+    await _persistGroups();
+  }
+
+  /// 词条被删除后清理分组引用；不足 2 个有效词的组直接丢弃
+  Future<void> _pruneConfusableGroups() async {
+    final valid = {for (final w in pool) w.key};
+    var changed = false;
+    final next = <ConfusableGroup>[];
+    for (final g in _groups) {
+      final keys = [
+        for (final k in g.wordKeys)
+          if (valid.contains(k)) k,
+      ];
+      if (keys.length == g.wordKeys.length) {
+        next.add(g);
+        continue;
+      }
+      changed = true;
+      if (keys.length >= 2) next.add(g.copyWith(wordKeys: keys));
+    }
+    if (!changed) return;
+    _groups = next;
+    await _persistGroups();
+  }
+
+  List<Map<String, dynamic>> _groupsData([Iterable<ConfusableGroup>? groups]) =>
+      (groups ?? _groups).map((g) => g.toJson()).toList();
+
+  Future<void> _persistGroups() async {
+    await _store.saveConfusableGroups(_groupsData());
+    notifyListeners();
+    unawaited(
+      _pushMetaValue('confusable_groups', jsonEncode(_groupsData())),
+    );
+  }
+
   /// 清空全部数据：本机 + 云端（不可撤销）
   Future<void> resetAll() async {
     await _store.clearAll();
     _states = {};
     _notes = [];
     _customBooks = [];
+    _groups = [];
     _daily = [];
     notifyListeners();
 

@@ -30,7 +30,7 @@ String buildJsonExport({
   return const JsonEncoder.withIndent('  ').convert(data);
 }
 
-/// 笔记导出（Markdown）：按单词分组，随手记单独一组
+/// 笔记导出（Markdown）：按更新日期分组，组内按时间正序
 String buildNotesMarkdown({required List<NoteRecord> notes, DateTime? now}) {
   final at = now ?? DateTime.now();
   final buffer = StringBuffer()
@@ -47,25 +47,20 @@ String buildNotesMarkdown({required List<NoteRecord> notes, DateTime? now}) {
 
   final groups = <String, List<NoteRecord>>{};
   for (final n in notes) {
-    groups.putIfAbsent(n.wordKey, () => []).add(n);
+    groups.putIfAbsent(_fmtDate(n.updatedAt), () => []).add(n);
   }
-  final keys = groups.keys.toList()
-    ..sort((a, b) {
-      if (a.isEmpty) return 1;
-      if (b.isEmpty) return -1;
-      return a.compareTo(b);
-    });
+  final days = groups.keys.toList()..sort((a, b) => b.compareTo(a));
 
-  for (final key in keys) {
-    final list = groups[key]!
+  for (final day in days) {
+    final list = groups[day]!
       ..sort((a, b) => a.updatedAt.compareTo(b.updatedAt));
     buffer
-      ..writeln('## ${key.isEmpty ? '随手记' : key}')
+      ..writeln('## $day')
       ..writeln();
     for (final n in list) {
       final heading = n.title.trim().isEmpty ? '' : ' · ${n.title.trim()}';
       buffer
-        ..writeln('### ${_fmtDateTime(n.updatedAt)}$heading')
+        ..writeln('### ${_fmtTime(n.updatedAt)}$heading')
         ..writeln();
       if (n.tags.isNotEmpty) {
         buffer
@@ -80,6 +75,16 @@ String buildNotesMarkdown({required List<NoteRecord> notes, DateTime? now}) {
     }
   }
   return buffer.toString();
+}
+
+String _fmtDate(DateTime t) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${t.year}-${two(t.month)}-${two(t.day)}';
+}
+
+String _fmtTime(DateTime t) {
+  String two(int v) => v.toString().padLeft(2, '0');
+  return '${two(t.hour)}:${two(t.minute)}';
 }
 
 String _fmtDateTime(DateTime t) {

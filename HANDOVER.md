@@ -1,8 +1,8 @@
 # 项目交接文档
 
 > English Study Tool — 跨端英语学习应用（Flutter + CloudBase PostgREST）
-> 当前版本：v0.14（M1–M10 完成：学习闭环 + 发音缓存 + 数据导出 / 恢复 + 时间线小记 / 多释义词条 + 设置生效 + 到期词分批 + 回前台同步 + 拼写四选一）
-> 最后更新：2026-11-20
+> 当前版本：v0.19（M1–M15 完成：学习闭环 + 发音缓存 + 数据导出 / 恢复 + 时间线小记 / 多释义词条 + 设置生效 + 到期词分批 + 回前台同步 + 拼写四选一 + 回看上一词 + 音节分节 + 笔记 Markdown + 易混词绑定 + 拍照识别手写）
+> 最后更新：2026-11-21
 
 ---
 
@@ -13,12 +13,13 @@
 **技术栈一句话**：Flutter 3.50.0（`E:\flutter_sdk\flutter`）+ material_ui（3.50 起替代 `flutter/material.dart`）+ `ChangeNotifier` 状态管理 + sqlite3 直连（原生）/ localStorage（Web）+ 自实现 SM-2 + 自建词单（无内置词库）+ 有道 dictvoice + CloudBase PostgreSQL 的 PostgREST（http 直连同步）。
 
 **现在的状态**：
-- 已实现：今日页（签到、待复习 / 今日已学、拼写入口）、学习页（四选一、自动评分、降级自评、到期词分批、结束页）、词单（多本单词本、词条增删改查 / 粘贴导入 / 重复导入累加 / 词性与多释义 / 离线词典带出音标释义）、拼写练习（发音 + 释义同时展示，首字母 / 音节 / 词根 / 四选一四级提示）、笔记（时间线小记 + 标签筛选 + 搜索 + 增删改查）、词根词缀（自建词拆解 + 词缀表）、学习统计（签到同源、14 天新学 / 复习柱状图）、设置页（学习设置、立即同步、发音缓存清理、JSON 导出 / 恢复、Markdown 导出、关于）、发音缓存 + TTS 兜底、云同步（启动 + 回前台自动同步）。
+- 已实现：今日页（签到、待复习 / 今日已学、拼写入口）、学习页（四选一、自动评分、降级自评、到期词分批、结束页、只读回看、单词音节分节、易混组关联出现）、词单（多本单词本、词条增删改查 / 粘贴导入 / 拍照识别手写（候选校对）/ 重复导入累加 / 词性与多释义 / 离线词典带出音标释义 / 音节分节）、拼写练习（发音 + 释义同时展示，首字母 / 音节（数量 + 分节）/ 词根 / 四选一四级提示）、笔记（独立时间线小记，Markdown 编辑 + 工具栏 + 预览，标签筛选 + 搜索 + 增删改查）、词根词缀（自建词拆解 + 词缀表）、易混词（2–4 词分组，学习时同组紧接出现，可云同步）、学习统计（签到同源、14 天新学 / 复习柱状图）、设置页（学习设置、立即同步、发音缓存清理、JSON 导出 / 恢复、Markdown 导出、关于）、发音缓存 + TTS 兜底、云同步（启动 + 回前台自动同步）。
 - 已下线：内置词库（words.json）、考试练习、真题例句、考纲筛选、收藏、错题本。
-- 验证方式：`flutter analyze --no-pub` 0 issue；`flutter test --no-pub` 51 项通过；`flutter build web --no-pub` 通过；`preview_web.cmd` 电脑端预览正常。
+- 验证方式：`flutter analyze --no-pub` 0 issue；`flutter test --no-pub` 70 项通过；`flutter build web --no-pub` 通过；`scripts\preview_web.cmd` 电脑端预览正常。
+- 平台限制：拍照识别手写仅 Android / iOS 提供入口（端上 ML Kit 离线，Web / 桌面不显示）；本机未验证 Android 真机识别效果。
 - 升级提示：笔记新增 `title` / `tags`，云端 `note` 表需手工执行一次 `ALTER TABLE`（ISSUE-033）；本地 SQLite 自动迁移。
 
-> **剩余可选项**：暂无。后续可考虑笔记导出按日期分组、词条批量操作、存储层集成测试。
+> **剩余可选项**：笔记本地图片（L），见 `docs/feature-map.md` 第 5 节。
 
 ---
 
@@ -29,12 +30,12 @@
 | ① | `docs/architecture.md` | **当前实现**：技术栈、目录、数据流、表结构 |
 | ② | `docs/api.md` | 实际调用的接口（发音 / 同步 / 本地存储），并明确列出未接入的历史方案 |
 | ③ | `docs/conventions.md` | 编码、状态管理、构建验证、Git、测试、文档约定 |
-| ④ | `docs/decisions.md` | 技术决策 D01–D40，含被推翻的方案，只追加不改写 |
+| ④ | `docs/decisions.md` | 技术决策 D01–D44，含被推翻的方案，只追加不改写 |
 | ⑤ | `docs/known-issues.md` | 坑与规避；早期条目的“已缓解”已按现状校正 |
 | ⑥ | `docs/cloudbase_schema.sql` | 云端建表与授权 SQL |
 | ⑦ | `README.md` | 功能表、目录树、常用命令 |
 | ⑧ | `PROJECT_MEMORY.md` | 逐次开发会话的经验沉淀（历史记录，非现状手册） |
-| ⑨ | `docs/research/` | 早期产品调研与 API 实测，**仅存档**，不要当现状引用 |
+| ⑨ | `docs/research/` | 早期产品调研、API 实测与设计参考截图，**仅存档**，不要当现状引用 |
 
 ---
 
@@ -43,15 +44,16 @@
 ```
 已实现
 ├── 今日：签到卡、待复习 / 今日已学数字块、开始学习与拼写入口
-├── 学习：自建词四选一、自动评分、到期词分批、词池不足时降级自评、结束页
-├── 词单：多本单词本、命名 / 重命名 / 删除；词条增删改查、粘贴导入（词性 / 多释义 / 音标）、重复导入计数、离线词典带出音标与释义
-├── 拼写练习：发音 + 释义同时展示，编辑距离容错，四选一提示兜底
+├── 学习：自建词四选一、自动评分、只读回看上一词、到期词分批、词池不足时降级自评、音节分节展示、易混组关联出现、结束页
+├── 词单：多本单词本、命名 / 重命名 / 删除；词条增删改查、粘贴导入（词性 / 多释义 / 音标）、拍照识别手写（候选校对）、重复导入计数、离线词典带出音标与释义、音节分节展示
+├── 拼写练习：发音 + 释义同时展示，编辑距离容错，首字母 / 音节（数量 + 分节）/ 词根 / 四选一四级提示
 ├── 词根词缀：自建词拆解 + 词缀库检索，无匹配时给出说明
 ├── 学习统计：与签到同源，14 天新学 / 复习柱状图、连续天数
-├── 笔记：时间线小记（标题 / 正文 / 标签 / 可选关联单词），标签筛选、搜索 / 增删改查，UUID + 软删除，可同步
+├── 笔记：独立时间线小记（标题 / 正文 / 标签），Markdown 编辑 + 工具栏 + 预览，标签筛选、搜索 / 增删改查，UUID + 软删除，可同步
+├── 易混词：2–4 词分组，学习时同组词紧接出现（关联复习），删除词条自动清理引用，可同步
 ├── 设置：学习设置（口音 / 每组新词 / 每组复习 / 拼写题量）、同步状态与立即同步、发音缓存清理、JSON 导出与恢复、Markdown 导出、清空、关于
 ├── 发音：mp3 本地缓存，网络失败 TTS 兜底
-└── 云同步：复习进度 / 笔记 / 自建单词本，离线优先，失败不影响本地
+└── 云同步：复习进度 / 笔记 / 自建单词本 / 易混词组，离线优先，失败不影响本地
 
 已下线
 ├── 内置词库 words.json、考试练习、真题例句、考纲筛选
@@ -59,7 +61,7 @@
 └── 错题本（`lapses` 字段保留给 SM-2 使用）
 
 待实施
-└── 可选：回前台自动同步、拼写选择题提示
+└── 笔记本地图片（仅原设备，不做云同步）
 ```
 
 早期设想但**未实现**的功能（真题长难句标注、派生树、听写模式、跟读打分、考前冲刺等）仍留在 `docs/research/`，需要时再单独评估。
@@ -74,7 +76,7 @@
 | UI | material_ui | ^1.11.0 | 不要用已弃用的 `flutter/material.dart` |
 | 状态管理 | ChangeNotifier | `lib/app_state.dart` | 单一全局 `AppState`；Riverpod 未引入（D12） |
 | 本地存储 | sqlite3 手写 SQL | `lib/data/progress_store_native.dart` | drift 未引入（D11） |
-| Web 存储 | localStorage | `lib/data/progress_store_web.dart` | 键 `es_review_v1` / `es_notes_v1` / `es_books_v1` |
+| Web 存储 | localStorage | `lib/data/progress_store_web.dart` | 键 `es_review_v1` / `es_notes_v1` / `es_books_v1` / `es_confusable_v1` |
 | 云端 | PostgREST（CloudBase PG） | `lib/data/cloud_sync.dart` | 不用 CloudBase SDK（D20） |
 | 间隔重复 | 自实现 SM-2 | `lib/domain/srs.dart` | 约 50 行 + 单测 |
 | HTTP | http | ^1.6.0 | 不用 dio |
@@ -96,9 +98,9 @@
 ```bash
 dart pub get                          # 依赖解析（不要用 flutter pub get）
 flutter analyze --no-pub              # 静态检查
-flutter test --no-pub                 # 单元 + Widget 测试
-preview_web.cmd                       # 电脑端预览（Edge，端口 8091）
-build_apk.cmd                         # 打包 APK → E:\APK\app-release.apk
+flutter test --no-pub                 # 单元测试（70 项）
+scripts\preview_web.cmd               # 电脑端预览（Edge，端口 8091）
+scripts\build_apk.cmd                 # 打包 APK → E:\APK\app-release.apk
 ```
 
 注意事项：

@@ -30,8 +30,8 @@
 | 页面 | `xxx_page.dart`，类名 `XxxPage` | `word_book_page.dart` |
 | 数据层 | `xxx_store.dart` / `xxx_repository.dart` / `xxx_sync.dart` | `progress_store_native.dart` |
 | 领域逻辑 | 放 `lib/domain/`，纯 Dart，无 IO | `srs.dart`、`edit_distance.dart` |
-| 测试 | `test/widget_test.dart`（单文件汇总） | — |
-| 脚本 | `*.cmd`，**内容必须是纯 ASCII** | `build_apk.cmd` |
+| 测试 | `test/domain/`、`test/data/` 下按模块拆 `xxx_test.dart` | `srs_test.dart`、`dictionary_test.dart` |
+| 脚本 | 统一放 `scripts/`；`*.cmd` **内容必须是纯 ASCII** | `scripts/build_apk.cmd` |
 
 - 一个文件一个主要类；**配套的小模型 / 异常类可以同文件**（如 `cloud_sync.dart` 里的 `SyncException`、`custom_word_parser.dart` 里的 `CustomWordEntry` / `CustomWordBook`）。
 - 领域模型用 `PascalCase`；私有字段 `_camelCase`；JSON 键统一 `snake_case`。
@@ -81,6 +81,7 @@ future
 - 复习状态：`ReviewState`（`ease` / `interval` / `reps` / `lapses` / `due` / `updatedAt`），SM-2 在 `lib/domain/srs.dart`。
 - 笔记：UUID 主键 + 软删除（`deleted`），同步时必须连带已删除记录。
 - 自建单词本：`custom_books` 为 `user_meta` 里的 JSON 数组，按书 `id` 合并；本地内容优先，与远端不一致才回推。
+- 易混词组：`confusable_groups` 为 `user_meta` 里的 JSON 数组，按组 `id` 合并；Web 本地键 `es_confusable_v1`，原生 `meta.confusable_groups`。
 - 所有云端表操作都必须带 `user_id` 过滤；`CloudSync` 已统一处理，不要绕过它直接发请求。
 - 新增 / 修改表结构时，同步更新 `docs/cloudbase_schema.sql` 与 `docs/api.md`。
 
@@ -102,9 +103,9 @@ future
 |---|---|---|
 | 依赖解析 | `dart pub get` | **不要用** `flutter pub get`（插件符号链接会失败，ISSUE-027） |
 | 静态检查 | `flutter analyze --no-pub` | 应为 `No issues found` |
-| 单元测试 | `flutter test --no-pub` | 当前 32 项全过 |
-| 本机预览 | 双击 `preview_web.cmd` | Edge + 端口 8091，构建目录在 `%TEMP%` |
-| 打包 APK | 双击 `build_apk.cmd` | 产物 `E:\APK\app-release.apk`；**仅用户明确要求时才打包** |
+| 单元测试 | `flutter test --no-pub` | 当前 70 项全过 |
+| 本机预览 | 双击 `scripts\preview_web.cmd` | Edge + 端口 8091，构建目录在 `%TEMP%` |
+| 打包 APK | 双击 `scripts\build_apk.cmd` | 产物 `E:\APK\app-release.apk`；**仅用户明确要求时才打包** |
 
 agent 在 shell 里调用 Flutter 时，必须用独立控制台启动，否则会卡死（ISSUE-024）：
 
@@ -145,8 +146,8 @@ scope: words | srs | spelling | sync | store | ui | docs | build
 
 | 类型 | 范围 | 位置 |
 |---|---|---|
-| 纯逻辑单测 | SM-2、编辑距离、拼写提示、自建词解析、JSON 往返 | `test/widget_test.dart` |
-| Widget 冒烟 | 页面能构建、关键文案存在 | 同上 |
+| 纯逻辑单测 | SM-2、拼写提示、自建词解析、易混组、导出 / 恢复、拍照识别候选 | `test/domain/`、`test/data/` |
+| Widget 冒烟 | 页面能构建、关键文案存在 | 当前未覆盖；新增时放 `test/ui/` |
 | 手工验证 | 发音、同步、真机交互 | 电脑端预览或真机 |
 
 - 新逻辑优先写成 `lib/domain/` 里的纯函数，方便无 Flutter 依赖地测试。

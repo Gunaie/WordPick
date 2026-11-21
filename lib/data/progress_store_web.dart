@@ -4,6 +4,7 @@
 ///   es_review_v1    -> { "word": {ease, interval, reps, lapses, due, updated_at} }
 ///   es_notes_v1     -> [ {id, word_key, content, created_at, updated_at, deleted} ]
 ///   es_books_v1     -> [ {id, name, created_at, words:[{w, defs, added_at, add_count}]} ]
+///   es_confusable_v1 -> [ {id, name, word_keys, created_at} ]
 ///   es_custom_v1    -> 旧版扁平自建词，仅用于迁移
 library;
 
@@ -47,6 +48,10 @@ abstract class ProgressStore {
   Future<List<Map<String, dynamic>>> loadCustomBooks();
   Future<void> saveCustomBooks(List<Map<String, dynamic>> books);
 
+  /// 易混词组（localStorage JSON 列表）
+  Future<List<Map<String, dynamic>>> loadConfusableGroups();
+  Future<void> saveConfusableGroups(List<Map<String, dynamic>> groups);
+
   /// 旧版扁平的「自建词」数据，仅用于一次性迁移
   Future<List<Map<String, dynamic>>> loadLegacyCustomWords();
   Future<void> clearLegacyCustomWords();
@@ -68,6 +73,7 @@ class LocalStorageProgressStore implements ProgressStore {
   static const _kNotes = 'es_notes_v1';
   static const _kFav = 'es_favorites_v1';
   static const _kBooks = 'es_books_v1';
+  static const _kConfusable = 'es_confusable_v1';
   static const _kCustom = 'es_custom_v1';
   static const _kDaily = 'es_daily_v1';
   static const _kSettings = 'es_settings_v1';
@@ -75,6 +81,7 @@ class LocalStorageProgressStore implements ProgressStore {
   final Map<String, ReviewState> _cache = {};
   Map<String, NoteRecord>? _notes;
   List<Map<String, dynamic>>? _custom;
+  List<Map<String, dynamic>>? _groups;
   Map<String, DailyStat>? _daily;
 
   LocalStorageProgressStore() {
@@ -257,6 +264,29 @@ class LocalStorageProgressStore implements ProgressStore {
   }
 
   @override
+  Future<List<Map<String, dynamic>>> loadConfusableGroups() async {
+    final cached = _groups;
+    if (cached != null) return List.unmodifiable(cached);
+    final list = <Map<String, dynamic>>[];
+    final raw = _read(_kConfusable);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        for (final e in jsonDecode(raw) as List) {
+          list.add(e as Map<String, dynamic>);
+        }
+      } catch (_) {}
+    }
+    _groups = list;
+    return List.unmodifiable(list);
+  }
+
+  @override
+  Future<void> saveConfusableGroups(List<Map<String, dynamic>> groups) async {
+    _groups = List.of(groups);
+    _write(_kConfusable, jsonEncode(groups));
+  }
+
+  @override
   Future<List<Map<String, dynamic>>> loadLegacyCustomWords() async {
     final list = <Map<String, dynamic>>[];
     final raw = _read(_kCustom);
@@ -359,12 +389,14 @@ class LocalStorageProgressStore implements ProgressStore {
     _cache.clear();
     _notes = {};
     _custom = [];
+    _groups = [];
     _daily = {};
     for (final k in [
       _kReview,
       _kNotes,
       _kFav,
       _kBooks,
+      _kConfusable,
       _kCustom,
       _kDaily,
       _kSettings,

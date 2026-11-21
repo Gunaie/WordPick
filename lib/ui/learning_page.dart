@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../domain/learning_quiz.dart';
+import '../domain/spelling_hints.dart';
 import '../domain/srs.dart';
 import '../domain/word.dart';
 import '../services/audio_service.dart';
@@ -25,6 +26,9 @@ class _LearningPageState extends State<LearningPage> {
 
   late List<Color> _gradient;
   late List<Word> _queue;
+
+  /// 关联插入的词 -> 易混组名，用于卡片上的小标
+  Map<String, String> _companions = {};
   bool _quizMode = false;
 
   int _index = 0;
@@ -35,6 +39,10 @@ class _LearningPageState extends State<LearningPage> {
   int? _selected;
   bool _revealed = false;
   int _definedCount = 0;
+
+  /// 已完成的回合快照，键为队列下标；回看只读，不重新计分
+  final Map<int, _RoundSnapshot> _history = {};
+  int? _reviewIndex;
 
   @override
   void initState() {
@@ -53,16 +61,20 @@ class _LearningPageState extends State<LearningPage> {
 
   void _start() {
     final pool = widget.state.pool;
-    _queue = widget.state.buildTodayQueue(
+    final round = widget.state.buildTodayQueue(
       newLimit: widget.state.settings.newWordsPerGroup,
       dueLimit: widget.state.settings.reviewWordsPerGroup,
     );
+    _queue = round.words;
+    _companions = {...round.companions};
     _definedCount =
         pool.where((w) => w.defs.any((d) => d.cn.trim().isNotEmpty)).length;
     _quizMode = canBuildQuiz(pool);
     _index = 0;
     _done = 0;
     _correct = 0;
+    _history.clear();
+    _reviewIndex = null;
     _prepare();
   }
 
@@ -86,6 +98,13 @@ class _LearningPageState extends State<LearningPage> {
 
     final correct = question.options[i].isCorrect;
     final reps = widget.state.states[word.key]?.reps ?? 0;
+    _history[_index] = _RoundSnapshot(
+      word: word,
+      question: question,
+      selected: i,
+      correct: correct,
+      companion: _companions[word.key],
+    );
     setState(() {
       _selected = i;
       _revealed = true;
@@ -98,6 +117,11 @@ class _LearningPageState extends State<LearningPage> {
   Future<void> _rate(ReviewGrade grade) async {
     final word = _current;
     if (word == null) return;
+    _history[_index] = _RoundSnapshot(
+      word: word,
+      grade: grade,
+      companion: _companions[word.key],
+    );
     setState(() {
       _done += 1;
       _revealed = true;
@@ -115,10 +139,34 @@ class _LearningPageState extends State<LearningPage> {
   }
 
   void _skip() {
+    final word = _current;
+    if (word != null) {
+      _history[_index] = _RoundSnapshot(
+        word: word,
+        question: _question,
+        skipped: true,
+        companion: _companions[word.key],
+      );
+    }
     setState(() {
       _index += 1;
       _prepare();
     });
+  }
+
+  /// 进入或继续向前回看；不改动当前题目的作答状态
+  void _reviewPrevious() {
+    final current = _reviewIndex;
+    if (current != null) {
+      if (current > 0 && _history.containsKey(current - 1)) {
+        setState(() => _reviewIndex = current - 1);
+      }
+      return;
+    }
+    final target = _index - 1;
+    if (target >= 0 && _history.containsKey(target)) {
+      setState(() => _reviewIndex = target);
+    }
   }
 
   @override
@@ -150,6 +198,22 @@ class _LearningPageState extends State<LearningPage> {
       );
     }
 
+    final reviewIndex = _reviewIndex;
+    final snapshot = reviewIndex == null ? null : _history[reviewIndex];
+    if (snapshot != null) {
+      return _ReviewView(
+        gradient: _gradient,
+        snapshot: snapshot,
+        index: reviewIndex!,
+        total: _queue.length,
+        canGoFurtherBack: reviewIndex > 0 && _history.containsKey(reviewIndex - 1),
+        onPrevious: _reviewPrevious,
+        onBackToCurrent: () => setState(() => _reviewIndex = null),
+        onExit: () => Navigator.of(context).pop(),
+        audio: _audio,
+      );
+    }
+
     final theme = Theme.of(context);
     final word = _current!;
     final noDefinition = word.defs.isEmpty;
@@ -167,6 +231,13 @@ class _LearningPageState extends State<LearningPage> {
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                    tooltip: '上一词',
+                    onPressed: _index > 0 && _history.containsKey(_index - 1)
+                        ? _reviewPrevious
+                        : null,
                   ),
                   Expanded(
                     child: Text(
@@ -205,6 +276,10 @@ class _LearningPageState extends State<LearningPage> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
                   children: [
+                    if (_companions[word.key] != null) ...[
+                      _CompanionChip(name: _companions[word.key]!),
+                      const SizedBox(height: 10),
+                    ],
                     Text(
                       word.w,
                       textAlign: TextAlign.center,
@@ -215,6 +290,7 @@ class _LearningPageState extends State<LearningPage> {
                         letterSpacing: 0.5,
                       ),
                     ),
+                    _SyllableLine(word: word.w),
                     const SizedBox(height: 10),
                     _PronunciationRow(word: word, audio: _audio),
                     const SizedBox(height: 12),
@@ -697,6 +773,311 @@ class _MessageView extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 「关联复习」小标：由易混组带出的提前复习
+class _CompanionChip extends StatelessWidget {
+  final String name;
+
+  const _CompanionChip({required this.name});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppColors.accent.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.compare_arrows_rounded,
+              size: 14,
+              color: AppColors.accent,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '关联复习 · $name',
+              style: const TextStyle(
+                color: AppColors.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 音节参考：规则切分不可靠时不展示，避免误导
+class _SyllableLine extends StatelessWidget {
+  final String word;
+
+  const _SyllableLine({required this.word});
+
+  @override
+  Widget build(BuildContext context) {
+    final parts = splitSyllables(word);
+    if (parts == null || parts.length < 2) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        parts.join('·'),
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: 14,
+          letterSpacing: 1.2,
+          fontWeight: FontWeight.w500,
+          color: AppColors.textSecondary.withValues(alpha: 0.9),
+        ),
+      ),
+    );
+  }
+}
+
+/// 一回合的只读快照：作答结果已写入 SRS，回看时不再提供交互
+class _RoundSnapshot {
+  final Word word;
+  final QuizQuestion? question;
+  final int? selected;
+  final bool? correct;
+  final ReviewGrade? grade;
+  final bool skipped;
+
+  /// 该词由易混组关联插入时，记录组名
+  final String? companion;
+
+  const _RoundSnapshot({
+    required this.word,
+    this.question,
+    this.selected,
+    this.correct,
+    this.grade,
+    this.skipped = false,
+    this.companion,
+  });
+}
+
+/// 回看上一词：展示原题、原选项与原判定，不改变任何复习记录
+class _ReviewView extends StatelessWidget {
+  final List<Color> gradient;
+  final _RoundSnapshot snapshot;
+  final int index;
+  final int total;
+  final bool canGoFurtherBack;
+  final VoidCallback onPrevious;
+  final VoidCallback onBackToCurrent;
+  final VoidCallback onExit;
+  final AudioService audio;
+
+  const _ReviewView({
+    required this.gradient,
+    required this.snapshot,
+    required this.index,
+    required this.total,
+    required this.canGoFurtherBack,
+    required this.onPrevious,
+    required this.onBackToCurrent,
+    required this.onExit,
+    required this.audio,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final word = snapshot.word;
+    final showOptions = snapshot.question != null && !snapshot.skipped;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: AppBackground(
+        colors: gradient,
+        child: SafeArea(
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: onExit,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                    tooltip: '更早一个',
+                    onPressed: canGoFurtherBack ? onPrevious : null,
+                  ),
+                  Expanded(
+                    child: Text(
+                      '回看 ${index + 1} / $total',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 48),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 22),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(2),
+                  child: LinearProgressIndicator(
+                    value: (index + 1) / total,
+                    minHeight: 4,
+                    backgroundColor: Colors.white.withValues(alpha: 0.45),
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(22, 24, 22, 24),
+                  children: [
+                    _ReviewStatus(snapshot: snapshot),
+                    if (snapshot.companion != null) ...[
+                      const SizedBox(height: 10),
+                      _CompanionChip(name: snapshot.companion!),
+                    ],
+                    const SizedBox(height: 18),
+                    Text(
+                      word.w,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 38,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.text,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    _SyllableLine(word: word.w),
+                    const SizedBox(height: 10),
+                    _PronunciationRow(word: word, audio: audio),
+                    if (showOptions) ...[
+                      const SizedBox(height: 24),
+                      for (var i = 0; i < snapshot.question!.options.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _OptionCard(
+                            option: snapshot.question!.options[i],
+                            selected: snapshot.selected == i,
+                            revealed: true,
+                            onTap: () {},
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 20),
+                    if (word.defs.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.55),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const Text(
+                          '该词还没有释义',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.textSecondary),
+                        ),
+                      )
+                    else
+                      _AnswerPanel(word: word),
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: onBackToCurrent,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 15),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
+                      child: const Text('回到当前'),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '回看不会改变复习记录',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviewStatus extends StatelessWidget {
+  final _RoundSnapshot snapshot;
+
+  const _ReviewStatus({required this.snapshot});
+
+  (IconData, String, Color) get _status {
+    if (snapshot.skipped) {
+      return (Icons.skip_next_outlined, '已跳过 · 未计分', AppColors.textSecondary);
+    }
+    if (snapshot.correct == true) {
+      return (Icons.check_circle_outline, '答对', AppColors.primary);
+    }
+    if (snapshot.correct == false) {
+      return (Icons.cancel_outlined, '答错', AppColors.danger);
+    }
+    return switch (snapshot.grade) {
+      ReviewGrade.again => (Icons.refresh, '自评：重来', AppColors.danger),
+      ReviewGrade.hard => (
+          Icons.trending_up,
+          '自评：难',
+          const Color(0xFFB26A00),
+        ),
+      ReviewGrade.good => (Icons.check, '自评：一般', AppColors.primary),
+      ReviewGrade.easy => (
+          Icons.bolt,
+          '自评：简单',
+          const Color(0xFF2E7D32),
+        ),
+      null => (Icons.history, '回看', AppColors.textSecondary),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, label, color) = _status;
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );

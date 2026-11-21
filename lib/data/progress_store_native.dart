@@ -42,6 +42,10 @@ abstract class ProgressStore {
   Future<List<Map<String, dynamic>>> loadCustomBooks();
   Future<void> saveCustomBooks(List<Map<String, dynamic>> books);
 
+  /// 易混词组（JSON 列表，复用 meta 表）
+  Future<List<Map<String, dynamic>>> loadConfusableGroups();
+  Future<void> saveConfusableGroups(List<Map<String, dynamic>> groups);
+
   /// 旧版扁平的「自建词」数据，仅用于一次性迁移
   Future<List<Map<String, dynamic>>> loadLegacyCustomWords();
   Future<void> clearLegacyCustomWords();
@@ -351,6 +355,15 @@ class SqliteProgressStore implements ProgressStore {
   @override
   Future<void> saveCustomBooks(List<Map<String, dynamic>> books) async {
     _setMeta('custom_books', jsonEncode(books));
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> loadConfusableGroups() async =>
+      _decodeList('confusable_groups');
+
+  @override
+  Future<void> saveConfusableGroups(List<Map<String, dynamic>> groups) async {
+    _setMeta('confusable_groups', jsonEncode(groups));
   }
 
   @override

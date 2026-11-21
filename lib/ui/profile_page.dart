@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import 'affix_page.dart';
+import 'confusable_page.dart';
 import 'notes_page.dart';
 import 'settings_page.dart';
 import 'stats_page.dart';
@@ -53,6 +54,15 @@ class ProfilePage extends StatelessWidget {
               title: '词根词缀',
               subtitle: '拆解自建词的前缀 / 词根 / 后缀',
               onTap: () => _push(context, AffixPage(state: state)),
+            ),
+            const SizedBox(height: 10),
+            _MenuCard(
+              icon: Icons.compare_arrows_rounded,
+              title: '易混词',
+              subtitle: state.confusableGroups.isEmpty
+                  ? '把容易混的词绑成一组'
+                  : '${state.confusableGroups.length} 组',
+              onTap: () => _push(context, ConfusablePage(state: state)),
             ),
             const SizedBox(height: 10),
             _MenuCard(

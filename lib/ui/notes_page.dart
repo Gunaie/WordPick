@@ -2,9 +2,10 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../data/note_record.dart';
+import 'note_editor_page.dart';
 import 'theme.dart';
 
-/// 笔记：时间线小记，支持标题、标签与可选单词关联
+/// 笔记：时间线小记，支持标题、标签与 Markdown
 class NotesPage extends StatefulWidget {
   final AppState state;
 
@@ -12,15 +13,6 @@ class NotesPage extends StatefulWidget {
 
   @override
   State<NotesPage> createState() => _NotesPageState();
-}
-
-class _NoteDraft {
-  final String title;
-  final String content;
-  final List<String> tags;
-  final String wordKey;
-
-  const _NoteDraft(this.title, this.content, this.tags, this.wordKey);
 }
 
 class _NotesPageState extends State<NotesPage> {
@@ -44,121 +36,25 @@ class _NotesPageState extends State<NotesPage> {
   }
 
   Future<void> _create() async {
-    final draft = await _showEditor();
-    if (draft == null) return;
-    await widget.state.addNoteByKey(
-      draft.wordKey,
-      draft.content,
-      title: draft.title,
-      tags: draft.tags,
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NoteEditorPage(state: widget.state),
+      ),
     );
   }
 
   Future<void> _edit(NoteRecord note) async {
-    final draft = await _showEditor(note: note);
-    if (draft == null) return;
-    await widget.state.updateNote(
-      note.id,
-      draft.content,
-      title: draft.title,
-      tags: draft.tags,
-    );
-  }
-
-  Future<_NoteDraft?> _showEditor({NoteRecord? note}) async {
-    final title = TextEditingController(text: note?.title ?? '');
-    final content = TextEditingController(text: note?.content ?? '');
-    final tags = TextEditingController(text: note?.tags.join('，') ?? '');
-    final word = TextEditingController(text: note?.wordKey ?? '');
-
-    final result = await showDialog<_NoteDraft>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: Text(note == null ? '新建小记' : '编辑小记'),
-        content: SizedBox(
-          width: 420,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: title,
-                  autofocus: note == null,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '标题（可选）',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: content,
-                  autofocus: note != null,
-                  minLines: 4,
-                  maxLines: 8,
-                  decoration: const InputDecoration(
-                    labelText: '内容',
-                    hintText: '记下想法、例句、联想…',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: tags,
-                  decoration: const InputDecoration(
-                    labelText: '标签（可选）',
-                    hintText: '用逗号或空格分隔，如：写作 例句',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: word,
-                  decoration: const InputDecoration(
-                    labelText: '关联单词（可选）',
-                    hintText: '留空则为独立小记',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final text = content.text.trim();
-              final heading = title.text.trim();
-              if (text.isEmpty && heading.isEmpty) return;
-              Navigator.pop(
-                ctx,
-                _NoteDraft(
-                  heading,
-                  text,
-                  _parseTags(tags.text),
-                  word.text.trim().toLowerCase(),
-                ),
-              );
-            },
-            child: const Text('保存'),
-          ),
-        ],
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NoteEditorPage(state: widget.state, note: note),
       ),
     );
-    title.dispose();
-    content.dispose();
-    tags.dispose();
-    word.dispose();
-    return result;
   }
 
   Future<void> _confirmDelete(NoteRecord note) async {
-    final label = note.title.trim().isEmpty ? _firstLine(note.content) : note.title;
+    final label = note.title.trim().isEmpty
+        ? _firstLine(_plainPreview(note.content))
+        : note.title;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -201,7 +97,6 @@ class _NotesPageState extends State<NotesPage> {
                       (activeTag == null || n.tags.contains(activeTag)) &&
                       (q.isEmpty ||
                           n.title.toLowerCase().contains(q) ||
-                          n.wordKey.toLowerCase().contains(q) ||
                           n.content.toLowerCase().contains(q) ||
                           n.tags.any((t) => t.toLowerCase().contains(q))))
                   .toList()
@@ -224,7 +119,7 @@ class _NotesPageState extends State<NotesPage> {
                   PageHeader(
                     title: '笔记',
                     subtitle: notes.isEmpty
-                        ? '随手记，或关联到某个单词'
+                        ? '随手记，支持 Markdown'
                         : '${notes.length} 条 · ${allTags.length} 个标签',
                     actions: [
                       IconButton(
@@ -242,7 +137,7 @@ class _NotesPageState extends State<NotesPage> {
                         onChanged: (v) => setState(() => _query = v),
                         style: theme.textTheme.bodyMedium,
                         decoration: InputDecoration(
-                          hintText: '搜索标题、内容、标签或单词',
+                          hintText: '搜索标题、内容或标签',
                           prefixIcon: const Icon(Icons.search, size: 20),
                           suffixIcon: _query.isEmpty
                               ? null
@@ -364,7 +259,8 @@ class _NoteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasTitle = note.title.trim().isNotEmpty;
-    final title = hasTitle ? note.title : _firstLine(note.content);
+    final plain = _plainPreview(note.content);
+    final title = hasTitle ? note.title : _firstLine(plain);
 
     return GlassCard(
       padding: const EdgeInsets.fromLTRB(18, 14, 10, 8),
@@ -394,23 +290,21 @@ class _NoteCard extends StatelessWidget {
               ),
             ],
           ),
-          if (hasTitle && note.content.isNotEmpty) ...[
+          if (hasTitle && plain.isNotEmpty) ...[
             const SizedBox(height: 6),
             Text(
-              note.content,
+              plain,
               maxLines: 4,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(height: 1.55),
             ),
           ],
-          if (note.wordKey.isNotEmpty || note.tags.isNotEmpty) ...[
+          if (note.tags.isNotEmpty) ...[
             const SizedBox(height: 10),
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: [
-                if (note.wordKey.isNotEmpty)
-                  _Tag(label: note.wordKey, accent: true),
                 for (final t in note.tags) _Tag(label: '#$t'),
               ],
             ),
@@ -442,13 +336,12 @@ class _NoteCard extends StatelessWidget {
 
 class _Tag extends StatelessWidget {
   final String label;
-  final bool accent;
 
-  const _Tag({required this.label, this.accent = false});
+  const _Tag({required this.label});
 
   @override
   Widget build(BuildContext context) {
-    final color = accent ? AppColors.accent : AppColors.primary;
+    const color = AppColors.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -516,7 +409,7 @@ class _EmptyView extends StatelessWidget {
               Text('还没有小记', style: theme.textTheme.titleMedium),
               const SizedBox(height: 6),
               Text(
-                '像便签一样随手记下想法，\n可以打标签，也可以关联到某个单词。',
+                '像便签一样随手记下想法，\n支持 Markdown 排版与标签。',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
@@ -547,15 +440,15 @@ class _EmptyView extends StatelessWidget {
   }
 }
 
-List<String> _parseTags(String raw) {
-  final seen = <String>{};
-  final out = <String>[];
-  for (final part in raw.split(RegExp(r'[,，、\s]+'))) {
-    final tag = part.trim().replaceFirst(RegExp(r'^#'), '');
-    if (tag.isNotEmpty && seen.add(tag)) out.add(tag);
-  }
-  return out;
-}
+/// 列表卡片用的纯文本预览：去掉常见的 Markdown 标记
+String _plainPreview(String text) => text
+    .replaceAll('```', '')
+    .replaceAll(RegExp(r'^\s{0,3}>\s?', multiLine: true), '')
+    .replaceAll(RegExp(r'^\s{0,3}#{1,3}\s+', multiLine: true), '')
+    .replaceAll(RegExp(r'^\s{0,3}[-*+]\s+', multiLine: true), '')
+    .replaceAll(RegExp(r'^\s{0,3}\d+[.)]\s+', multiLine: true), '')
+    .replaceAll(RegExp(r'(\*\*|\*|`)'), '')
+    .trim();
 
 String _firstLine(String text) {
   final line = text.trim().split('\n').first.trim();

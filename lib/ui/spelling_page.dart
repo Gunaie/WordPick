@@ -12,7 +12,7 @@ import 'theme.dart';
 /// 拼写练习：发音与释义同时展示，用户据此拼写单词
 ///
 /// 判题使用编辑距离容错（差 1 个字母算笔误），并提供递进提示：
-/// 首字母 → 音节数 → 词根拆解 → 四选一。
+/// 首字母 → 音节（数量与分节）→ 词根拆解 → 四选一。
 class SpellingPage extends StatefulWidget {
   final AppState state;
 
@@ -249,7 +249,7 @@ class _SpellingPageState extends State<SpellingPage> {
           const SizedBox(height: 24),
           Text(
             '判定规则：完全一致为正确；仅差 1 个字母视为笔误（半对）。'
-            '可逐级提示：首字母 → 音节数 → 词根拆解 → 四选一。',
+            '可逐级提示：首字母 → 音节 → 词根拆解 → 四选一。',
             style: theme.textTheme.bodySmall?.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -322,9 +322,12 @@ class _SpellingPageState extends State<SpellingPage> {
             isKnownWord: (k) => widget.state.findWord(k) != null,
           )
         : '';
+    final parts = _hintLevel >= 2 ? splitSyllables(word.w) : null;
     return _MeaningHintCard(
       firstLetter: firstLetterHint(word.w),
       syllables: _hintLevel >= 2 ? syllableCount(word.w) : 0,
+      syllableSplit:
+          parts != null && parts.length > 1 ? parts.join('·') : '',
       breakdown: breakdown,
     );
   }
@@ -579,11 +582,13 @@ class _ChoiceHint extends StatelessWidget {
 class _MeaningHintCard extends StatelessWidget {
   final String firstLetter;
   final int syllables; // 0 表示未展示
+  final String syllableSplit; // 可可靠切分时展示，如 re·sil·ient
   final String breakdown;
 
   const _MeaningHintCard({
     required this.firstLetter,
     required this.syllables,
+    required this.syllableSplit,
     required this.breakdown,
   });
 
@@ -620,8 +625,12 @@ class _MeaningHintCard extends StatelessWidget {
           ),
           if (syllables > 0) ...[
             const SizedBox(height: 8),
-            Text('约 $syllables 个音节',
-                style: theme.textTheme.bodyMedium),
+            Text(
+              syllableSplit.isEmpty
+                  ? '约 $syllables 个音节'
+                  : '音节：$syllableSplit（$syllables）',
+              style: theme.textTheme.bodyMedium,
+            ),
           ],
           if (breakdown.isNotEmpty) ...[
             const SizedBox(height: 4),

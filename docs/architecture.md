@@ -21,6 +21,7 @@
 | 音频播放 | audioplayers + flutter_tts | ^6.8.1 / ^4.2.3 | `lib/services/audio_service.dart` |
 | 文件路径 | path_provider + path | ≥2.1.6 | `path_provider`, `path` |
 | 导出 | share_plus（原生）/ Blob（Web） | ^10.1.4 | `lib/services/export_service.dart` |
+| 拍照识别 | google_mlkit_text_recognition + image_picker | ^1.0.3 / ^1.2.4 | `lib/services/ocr_native.dart`（仅 Android / iOS） |
 | 其他 | uuid（笔记 ID）、web（条件导出） | — | `uuid`, `web` |
 
 > 与最初方案的差异：drift + build_runner 未采用（改手写 SQL）；Riverpod 未引入（D12）；
@@ -31,7 +32,7 @@
 | 平台 | 状态 | 说明 |
 |---|---|---|
 | Android | ✅ 主要目标，真机验证通过 | API 24+；release 包需 `INTERNET` 权限 |
-| Web | ✅ 次要目标 / 日常预览 | localStorage 持久化；`preview_web.cmd` 用 Edge 预览 |
+| Web | ✅ 次要目标 / 日常预览 | localStorage 持久化；`scripts\preview_web.cmd` 用 Edge 预览 |
 | Windows | ⚪ 保留工程，本机未验证 | 缺 VS C++ 工作负载与开发者模式，当前无法构建（ISSUE-027） |
 | iOS / macOS | ⚪ 保留工程，未验证 | — |
 | Linux | ⚪ 未接入 | — |
@@ -67,13 +68,20 @@ lib/
 │   ├── export_import.dart         备份 JSON 解析（恢复用，纯逻辑）
 │   ├── edit_distance.dart         拼写容错判定
 │   ├── spelling_hints.dart        拼写提示：首字母 / 音节 / 词根 / 四选一
-│   └── custom_word_parser.dart    自建词文本解析
+│   ├── markdown.dart              笔记 Markdown 块级解析（预览用）
+│   ├── custom_word_parser.dart    自建词文本解析（批量导入 / 拍照识别共用）
+│   ├── ocr_candidates.dart        OCR 文本行合并 → 候选词条（纯逻辑）
+│   ├── confusable_group.dart      易混词组模型
+│   └── confusable_queue.dart      易混组在队列中的插入（纯函数）
 │
 ├── services/
 │   ├── audio_service.dart         dictvoice 音源 + 缓存 + TTS 兜底
 │   ├── audio_cache.dart           缓存接口（native / web / stub 条件导出）
 │   ├── export_service.dart        导出落盘（share_plus / Blob 条件导出）
-│   └── export_native.dart         原生：临时文件 + 系统分享
+│   ├── export_native.dart         原生：临时文件 + 系统分享
+│   ├── ocr_service.dart           拍照识别接口（native / stub 条件导出）
+│   ├── ocr_native.dart            ML Kit 离线识别 + image_picker 取图
+│   └── ocr_types.dart             取图来源等公共类型
 │
 └── ui/                            页面
     ├── theme.dart                 配色 / 渐变背景 / 玻璃卡片 / 统一页头 PageHeader
@@ -83,7 +91,10 @@ lib/
     ├── word_book_page.dart        自建单词本详情（词条增删改查）
     ├── spelling_page.dart         拼写练习
     ├── notes_page.dart            笔记（时间线小记 + 标签筛选 + 搜索、增删改查）
+    ├── note_editor_page.dart      笔记编辑（Markdown 工具栏 + 预览切换）
+    ├── markdown_text.dart         Markdown 渲染（标题 / 列表 / 引用 / 代码）
     ├── affix_page.dart            词根词缀专题（自建词拆解 + 词缀检索）
+    ├── confusable_page.dart       易混词分组管理
     ├── stats_page.dart            学习统计（签到同源、14 天柱状图）
     ├── settings_page.dart         设置
     └── profile_page.dart          我的（功能入口）
@@ -99,7 +110,7 @@ lib/
 main() → AppState 初始化
   ├─ AffixRepository.load()   ← assets/data/affixes.json
   ├─ DictionaryRepository.load() ← assets/data/dict_core.json（失败静默）
-  ├─ ProgressStore.loadAll() / loadNotes() / loadDaily() / loadCustomBooks() / loadSettings()
+  ├─ ProgressStore.loadAll() / loadNotes() / loadDaily() / loadCustomBooks() / loadConfusableGroups() / loadSettings()
   │                          ← 原生 sqlite3 / Web localStorage
   └─ 可选：CloudSync.pull()   ← PostgREST，失败不阻塞启动
 ```
@@ -108,7 +119,7 @@ main() → AppState 初始化
 
 ```
 今日页 → buildTodayQueue()（到期词按上限截断 + 未学新词，数量取自本地设置：
-           到期默认 20、新词默认 10）
+           到期默认 20、新词默认 10；随后由 buildConfusableRound 插入易混组同伴）
   │
   ├─ learning_quiz.dart 生成四选一 → 答对 / 答错
   ├─ 自动评分：错→重来；对→一般；对且 reps ≥ 3→简单
@@ -129,6 +140,7 @@ syncNow():
   ├─ 本地更新的词 → 批量 upsert 回远端
   ├─ pull note          → 远端软删除则本地物理删除；否则按 updated_at 取新
   ├─ pull user_meta     → 自建单词本按书 id 取并集（本地内容优先）
+  │                      → 易混词组按组 id 取并集（本地内容优先）
   └─ 清理旧键（favorites / custom_words）
 ```
 
@@ -154,6 +166,26 @@ AppState.restoreFromJson 合并：
   ↓ 有变更时触发一次 syncNow()
 ```
 
+### 拍照识别手写
+
+```
+词单详情 →「拍照识别手写」（仅 ocrSupported 为真的 Android / iOS 显示）
+  ↓ 弹层选择拍照 / 相册
+image_picker 取图（临时文件，不写入数据库）
+  ↓
+ocr_native.dart：ML Kit 中文模型端上离线识别 → 原始文本
+  ↓
+ocr_candidates.dart：合并「单词一行、释义下一行」的写法 → OcrScanResult
+  ↓
+候选校对页：逐条编辑 / 删除 → 确认
+  ↓
+importWordsToBook()：复用粘贴导入的解析、去重与重复次数累加
+```
+
+- Web / 桌面走 `ocr_stub.dart`，`ocrSupported = false`，界面不显示入口；`flutter build web` 不受影响。
+- 手写（尤其中文）准确率有限，产品上以「候选校对」兜底；中文识别模型随 APK 打包，约增加 20–40MB。
+- Android 侧需在 `android/app/build.gradle.kts` 显式引入 `com.google.mlkit:text-recognition-chinese`（Flutter 插件只声明 compileOnly）。
+
 ---
 
 ## 本地数据表（sqlite3）
@@ -163,7 +195,7 @@ AppState.restoreFromJson 合并：
 | `review_state` | 每个词的学习状态（SM-2 参数、下次复习、遗忘次数） |
 | `note` | 笔记（UUID + 软删除；`title` / `tags` 为 M6 新增列） |
 | `daily_stat` | 每日新学 / 复习计数 |
-| `meta` | 杂项键值（自建单词本、设置等；收藏功能已下线） |
+| `meta` | 杂项键值（自建单词本 `custom_books`、易混词组 `confusable_groups`、设置等；收藏功能已下线） |
 
 云端对应表：`review_state`、`note`、`user_meta`（结构见 `docs/cloudbase_schema.sql`）。
 

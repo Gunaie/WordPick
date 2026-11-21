@@ -8,7 +8,7 @@ library;
 class NoteRecord {
   final String id;
 
-  /// 关联单词（可选，空串表示随手记）
+  /// 关联单词（历史字段，仅为兼容旧数据与云端 `word_key` 列；新笔记恒为空串）
   final String wordKey;
 
   /// 标题（可选，空串时列表用正文首行）

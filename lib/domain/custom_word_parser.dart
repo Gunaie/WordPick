@@ -167,42 +167,19 @@ CustomWordParseResult parseCustomWordsDetailed(
     final raw = line.trim();
     if (raw.isEmpty) continue;
 
-    // 先按「第一个中文字符」切成 单词段 / 释义段
-    final cjkMatch = _cjk.firstMatch(raw);
-    String head;
-    String def;
-    if (cjkMatch != null) {
-      head = raw.substring(0, cjkMatch.start);
-      def = raw.substring(cjkMatch.start);
-    } else {
-      final parts = raw.split(RegExp(r'[\t,，:：;；]|\s{2,}'));
-      head = parts.first;
-      def = parts.length > 1 ? parts.sublist(1).join(' ').trim() : '';
-    }
-
-    final rawHead = head;
-    head = _cleanHead(head);
-
-    final phonetic = _extractPhonetic(rawHead);
-    final headPos = _extractHeadPos(rawHead);
-
-    if (head.isEmpty) {
+    final word = parseCustomWordLine(raw);
+    if (word == null) {
       invalid.add(raw);
       continue;
     }
 
-    final key = head.toLowerCase();
+    final key = word.key;
     if (repeatable.contains(key) || seen.contains(key)) {
       repeated[key] = (repeated[key] ?? 0) + 1;
       continue;
     }
 
-    added.add(Word(
-      w: head,
-      uk: phonetic ?? '',
-      defs: _parseSenses(def, headPos),
-      tags: const ['custom'],
-    ));
+    added.add(word);
     seen.add(key);
   }
 
@@ -210,6 +187,38 @@ CustomWordParseResult parseCustomWordsDetailed(
     added: added,
     repeated: repeated,
     invalid: invalid,
+  );
+}
+
+/// 解析单行文本为词条；取不到英文单词时返回 null。
+///
+/// 批量导入与拍照识别候选共用这一套规则。
+Word? parseCustomWordLine(String line) {
+  final raw = line.trim();
+  if (raw.isEmpty) return null;
+
+  // 先按「第一个中文字符」切成 单词段 / 释义段
+  final cjkMatch = _cjk.firstMatch(raw);
+  String head;
+  String def;
+  if (cjkMatch != null) {
+    head = raw.substring(0, cjkMatch.start);
+    def = raw.substring(cjkMatch.start);
+  } else {
+    final parts = raw.split(RegExp(r'[\t,，:：;；]|\s{2,}'));
+    head = parts.first;
+    def = parts.length > 1 ? parts.sublist(1).join(' ').trim() : '';
+  }
+
+  final rawHead = head;
+  head = _cleanHead(head);
+  if (head.isEmpty) return null;
+
+  return Word(
+    w: head,
+    uk: _extractPhonetic(rawHead) ?? '',
+    defs: _parseSenses(def, _extractHeadPos(rawHead)),
+    tags: const ['custom'],
   );
 }
 

@@ -325,7 +325,7 @@
 |---|---|
 | 现象 | `:audioplayers_android:compileReleaseKotlin` 失败：`Could not close incremental caches ... caches-jvm`；一次构建回收 100+ 个 `build/` 文件 |
 | 根因 | Trae 文件监视器把工作区 `build/` 下的 Kotlin 增量缓存 `.tab` 文件移入回收站，而 Gradle 正在写这些文件 |
-| 规避 | `build_apk.cmd` 把源码同步到 `%TEMP%\english_build`，在副本目录里构建；产物不会落进被监视的工作区 |
+| 规避 | `scripts/build_apk.cmd` 把源码同步到 `%TEMP%\english_build`，在副本目录里构建；产物不会落进被监视的工作区 |
 | 注意 | 不要试图用「把 build 放进 .gitignore」解决——监视器不看 gitignore |
 | 状态 | 🟢 已规避 |
 
@@ -353,7 +353,7 @@
 | JDK | `D:\Javadevelop\jdk-17.0.20.1+1` |
 | Android SDK | `E:\Android\Sdk`（platform 36、build-tools 36.0.0、platform-tools 37.0.1、NDK 28.2.13676358、CMake 3.22.1） |
 | Gradle 缓存 | `%LOCALAPPDATA%\Temp\gradle-home`（Gradle 9.5.0 + AGP 9.1.1） |
-| 一键命令 | `build_apk.cmd`（产物 `E:\APK\app-release.apk`） |
+| 一键命令 | `scripts/build_apk.cmd`（产物 `E:\APK\app-release.apk`） |
 
 
 ### ISSUE-032 · flutter_tts 触发 WebAssembly dry-run 告警 🟢
@@ -373,3 +373,12 @@
 | 影响 | 仅影响已建过 `note` 表的云端环境；本地 SQLite 已在启动时自动 `ALTER TABLE`，Web localStorage 缺字段自动降级 |
 | 规避 | 在云端 SQL 编辑器执行 `docs/cloudbase_schema.sql` 中「已建过旧表的库」段落的两句 `ALTER TABLE note ADD COLUMN ...`，然后点设置页「立即同步」 |
 | 状态 | 🟡 需手工执行一次迁移 |
+
+### ISSUE-034 · 手写识别准确率与包体积限制 🟡
+
+| 项 | 内容 |
+|---|---|
+| 现象 | 端上 ML Kit 对书写规整的英文单词较稳，连笔英文与中文手写释义误识别率较高；中文模型随包，APK 体积约增加 20–40MB |
+| 影响 | 仅 Android / iOS 显示「拍照识别手写」入口，Web / 桌面不提供；识别结果必须经候选校对页确认后才写入词书 |
+| 规避 | 草稿尽量一行写「单词 + 释义」；拍照正对、光线均匀；错词在候选页点开，可用离线词典回填 |
+| 状态 | 🟡 产品已内置校对兜底，准确率受端上模型限制 |

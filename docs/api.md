@@ -75,7 +75,7 @@ static String urlFor(String word, {required bool uk}) {
 |---|---|---|---|
 | `review_state` | `(user_id, word_key)` | `ease` `interval` `reps` `lapses` `due` `updated_at` | 每词 SM-2 学习状态 |
 | `note` | `id` | `user_id` `word_key` `title` `content` `tags` `created_at` `updated_at` `deleted` | 笔记（UUID + 软删除；`title` / `tags` 需旧库 ALTER，见 ISSUE-033） |
-| `user_meta` | `(user_id, key)` | `value` `updated_at` | 键值 JSON：自建单词本 `custom_books` 等 |
+| `user_meta` | `(user_id, key)` | `value` `updated_at` | 键值 JSON：自建单词本 `custom_books`、易混词组 `confusable_groups` 等 |
 
 建表与授权 SQL 见 `docs/cloudbase_schema.sql`。
 
