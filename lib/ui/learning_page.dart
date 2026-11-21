@@ -111,7 +111,14 @@ class _LearningPageState extends State<LearningPage> {
       _done += 1;
       if (correct) _correct += 1;
     });
-    await widget.state.grade(word, autoGrade(correct: correct, reps: reps));
+    await widget.state.grade(
+      word,
+      autoGrade(
+        correct: correct,
+        reps: reps,
+        useFsrs: widget.state.settings.useFsrs,
+      ),
+    );
   }
 
   Future<void> _rate(ReviewGrade grade) async {

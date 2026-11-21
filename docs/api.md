@@ -73,7 +73,7 @@ static String urlFor(String word, {required bool uk}) {
 
 | 表 | 主键 | 字段 | 用途 |
 |---|---|---|---|
-| `review_state` | `(user_id, word_key)` | `ease` `interval` `reps` `lapses` `due` `updated_at` | 每词 SM-2 学习状态 |
+| `review_state` | `(user_id, word_key)` | `ease` `interval` `reps` `lapses` `due` `updated_at` `stability` `difficulty` `fsrs_state` `fsrs_step` `last_review` | 每词复习状态（v0.22 起默认 FSRS-6，SM-2 字段保留用于回滚；旧库需 ALTER 加 FSRS 列，见 ISSUE-035） |
 | `note` | `id` | `user_id` `word_key` `title` `content` `tags` `created_at` `updated_at` `deleted` | 笔记（UUID + 软删除；`title` / `tags` 需旧库 ALTER，见 ISSUE-033） |
 | `user_meta` | `(user_id, key)` | `value` `updated_at` | 键值 JSON：自建单词本 `custom_books`、易混词组 `confusable_groups` 等 |
 

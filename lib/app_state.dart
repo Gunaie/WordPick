@@ -577,7 +577,12 @@ class AppState extends ChangeNotifier {
   Future<ReviewState> grade(Word word, ReviewGrade g) async {
     final isNew = !_states.containsKey(word.key);
     final cur = _states[word.key] ?? ReviewState.initial();
-    final next = SrsEngine.next(cur, g);
+    final next = SrsEngine.next(
+      cur,
+      g,
+      algorithm:
+          _settings.useFsrs ? SrsAlgorithm.fsrs : SrsAlgorithm.sm2,
+    );
     _states[word.key] = next;
     await _store.upsert(word.key, next);
 

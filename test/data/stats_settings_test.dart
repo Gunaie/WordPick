@@ -52,12 +52,18 @@ void main() {
   });
 
   group('学习设置', () {
-    test('默认英音、每组新词 10、每组复习 20、拼写 10 题', () {
+    test('默认英音、每组新词 10、每组复习 20、拼写 10 题、FSRS-6 调度', () {
       const s = AppSettings();
       expect(s.useUkAccent, isTrue);
       expect(s.newWordsPerGroup, 10);
       expect(s.reviewWordsPerGroup, 20);
       expect(s.spellingWords, 10);
+      expect(s.useFsrs, isTrue);
+    });
+
+    test('显式选择 SM-2 可持久化并回滚', () {
+      const s = AppSettings(useFsrs: false);
+      expect(AppSettings.fromJson(s.toJson()).useFsrs, isFalse);
     });
 
     test('JSON 往返保存口音与题量', () {
@@ -91,6 +97,7 @@ void main() {
       expect(empty.reviewWordsPerGroup, 20);
       expect(empty.spellingWords, 10);
       expect(empty.useUkAccent, isTrue);
+      expect(empty.useFsrs, isTrue);
     });
   });
 }

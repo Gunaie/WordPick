@@ -73,10 +73,14 @@ void main() {
       expect(canBuildQuiz(pool), isTrue);
     });
 
-    test('自动评分映射：错→重来，对→一般，熟词答对→简单', () {
-      expect(autoGrade(correct: false, reps: 10), ReviewGrade.again);
-      expect(autoGrade(correct: true, reps: 0), ReviewGrade.good);
-      expect(autoGrade(correct: true, reps: 3), ReviewGrade.easy);
+    test('自动评分映射：错→重来，对→一般，SM-2 熟词答对→简单', () {
+      expect(autoGrade(correct: false, reps: 10, useFsrs: false),
+          ReviewGrade.again);
+      expect(autoGrade(correct: true, reps: 0, useFsrs: false),
+          ReviewGrade.good);
+      expect(autoGrade(correct: true, reps: 3, useFsrs: false),
+          ReviewGrade.easy);
+      expect(autoGrade(correct: true, reps: 3), ReviewGrade.good);
     });
   });
 

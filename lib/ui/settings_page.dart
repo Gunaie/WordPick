@@ -489,6 +489,33 @@ class _SettingsPageState extends State<SettingsPage> {
                               ),
                             ),
                           ),
+                          ListTile(
+                            dense: true,
+                            title: const Text('复习算法'),
+                            subtitle: Text(
+                              '默认 FSRS-6：调度更自适应，少复习也能保持留存；'
+                              'SM-2 为回滚基线（切换后已有词下次复习时生效）',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                            trailing: DropdownButton<bool>(
+                              value: state.settings.useFsrs,
+                              underline: const SizedBox.shrink(),
+                              items: const [
+                                DropdownMenuItem(
+                                    value: true, child: Text('FSRS-6')),
+                                DropdownMenuItem(
+                                    value: false, child: Text('SM-2')),
+                              ],
+                              onChanged: (v) async {
+                                if (v == null) return;
+                                await state.updateSettings(
+                                  state.settings.copyWith(useFsrs: v),
+                                );
+                              },
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -644,7 +671,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             dense: true,
                             title: const Text('版本'),
                             trailing: Text(
-                              'v0.18',
+                              'v0.22',
                               style: theme.textTheme.bodySmall,
                             ),
                           ),

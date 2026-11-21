@@ -1,7 +1,7 @@
 # 项目交接文档
 
 > English Study Tool — 跨端英语学习应用（Flutter + CloudBase PostgREST）
-> 当前版本：v0.19（M1–M15 完成：学习闭环 + 发音缓存 + 数据导出 / 恢复 + 时间线小记 / 多释义词条 + 设置生效 + 到期词分批 + 回前台同步 + 拼写四选一 + 回看上一词 + 音节分节 + 笔记 Markdown + 易混词绑定 + 拍照识别手写）
+> 当前版本：v0.22（M1–M15 完成 + 发音超时熔断 + FSRS-6 默认调度：学习闭环 + 发音缓存 + 数据导出 / 恢复 + 时间线小记 / 多释义词条 + 设置生效 + 到期词分批 + 回前台同步 + 拼写四选一 + 回看上一词 + 音节分节 + 笔记 Markdown + 易混词绑定 + 拍照识别手写 + 发音超时与熔断兜底 + 复习算法默认 FSRS-6、SM-2 可回滚）
 > 最后更新：2026-11-21
 
 ---
@@ -13,7 +13,7 @@
 **技术栈一句话**：Flutter 3.50.0（`E:\flutter_sdk\flutter`）+ material_ui（3.50 起替代 `flutter/material.dart`）+ `ChangeNotifier` 状态管理 + sqlite3 直连（原生）/ localStorage（Web）+ 自实现 SM-2 + 自建词单（无内置词库）+ 有道 dictvoice + CloudBase PostgreSQL 的 PostgREST（http 直连同步）。
 
 **现在的状态**：
-- 已实现：今日页（签到、待复习 / 今日已学、拼写入口）、学习页（四选一、自动评分、降级自评、到期词分批、结束页、只读回看、单词音节分节、易混组关联出现）、词单（多本单词本、词条增删改查 / 粘贴导入 / 拍照识别手写（候选校对）/ 重复导入累加 / 词性与多释义 / 离线词典带出音标释义 / 音节分节）、拼写练习（发音 + 释义同时展示，首字母 / 音节（数量 + 分节）/ 词根 / 四选一四级提示）、笔记（独立时间线小记，Markdown 编辑 + 工具栏 + 预览，标签筛选 + 搜索 + 增删改查）、词根词缀（自建词拆解 + 词缀表）、易混词（2–4 词分组，学习时同组紧接出现，可云同步）、学习统计（签到同源、14 天新学 / 复习柱状图）、设置页（学习设置、立即同步、发音缓存清理、JSON 导出 / 恢复、Markdown 导出、关于）、发音缓存 + TTS 兜底、云同步（启动 + 回前台自动同步）。
+- 已实现：今日页（签到、待复习 / 今日已学、拼写入口）、学习页（四选一、自动评分、降级自评、到期词分批、结束页、只读回看、单词音节分节、易混组关联出现）、词单（多本单词本、词条增删改查 / 粘贴导入 / 拍照识别手写（候选校对）/ 重复导入累加 / 词性与多释义 / 离线词典带出音标释义 / 音节分节）、拼写练习（发音 + 释义同时展示，首字母 / 音节（数量 + 分节）/ 词根 / 四选一四级提示）、笔记（独立时间线小记，Markdown 编辑 + 工具栏 + 预览，标签筛选 + 搜索 + 增删改查）、词根词缀（自建词拆解 + 词缀表）、易混词（2–4 词分组，学习时同组紧接出现，可云同步）、学习统计（签到同源、14 天新学 / 复习柱状图）、设置页（学习设置、立即同步、发音缓存清理、JSON 导出 / 恢复、Markdown 导出、关于）、发音缓存 + 超时熔断 + TTS 兜底、云同步（启动 + 回前台自动同步）。
 - 已下线：内置词库（words.json）、考试练习、真题例句、考纲筛选、收藏、错题本。
 - 验证方式：`flutter analyze --no-pub` 0 issue；`flutter test --no-pub` 70 项通过；`flutter build web --no-pub` 通过；`scripts\preview_web.cmd` 电脑端预览正常。
 - 平台限制：拍照识别手写仅 Android / iOS 提供入口（端上 ML Kit 离线，Web / 桌面不显示）；本机未验证 Android 真机识别效果。
@@ -78,12 +78,12 @@
 | 本地存储 | sqlite3 手写 SQL | `lib/data/progress_store_native.dart` | drift 未引入（D11） |
 | Web 存储 | localStorage | `lib/data/progress_store_web.dart` | 键 `es_review_v1` / `es_notes_v1` / `es_books_v1` / `es_confusable_v1` |
 | 云端 | PostgREST（CloudBase PG） | `lib/data/cloud_sync.dart` | 不用 CloudBase SDK（D20） |
-| 间隔重复 | 自实现 SM-2 | `lib/domain/srs.dart` | 约 50 行 + 单测 |
+| 间隔重复 | FSRS-6（默认）+ SM-2 可回滚（懒迁移、数据无损） | `lib/domain/srs.dart` | ~120 行 + 单测 |
 | HTTP | http | ^1.6.0 | 不用 dio |
 | 音频 | audioplayers + flutter_tts | ^6.8.1 / ^4.2.3 | dictvoice 播放 + 缓存 + TTS 兜底 |
 | 导出 | share_plus + Blob | ^10.1.4 | 原生系统分享，Web 浏览器下载 |
 
-**待决策项**：D05（SM-2 还是 FSRS-6）、D08（是否引入 Riverpod）——都在 `decisions.md` 中保持开放。
+**待决策项**：D08（是否引入 Riverpod）——在 `decisions.md` 中保持开放。D05（FSRS-6）已关闭：v0.22 起默认 FSRS-6，SM-2 保留为设置页可切换的回滚选项。
 
 ---
 

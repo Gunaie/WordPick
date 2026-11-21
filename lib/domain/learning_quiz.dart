@@ -70,8 +70,18 @@ QuizQuestion? buildQuiz(Word word, List<Word> pool, {Random? random}) {
   return QuizQuestion(options);
 }
 
-/// 自动评分映射：答错重来；答对一般；答对且已连续答对 3 次以上为简单
-ReviewGrade autoGrade({required bool correct, required int reps}) {
+/// 自动评分映射。
+///
+/// 答错 → again。答对时：
+///   * SM-2 模式：连续答对 3 次以上自动评为 easy（沿用历史行为）；
+///   * FSRS 模式：答对一律 good，easy 留给用户手动选 —— FSRS 下自动 easy
+///     会让间隔暴涨（秒答词直接跳到几个月甚至几年），由用户诚实评分更准确。
+ReviewGrade autoGrade({
+  required bool correct,
+  required int reps,
+  bool useFsrs = true,
+}) {
   if (!correct) return ReviewGrade.again;
+  if (useFsrs) return ReviewGrade.good;
   return reps >= 3 ? ReviewGrade.easy : ReviewGrade.good;
 }

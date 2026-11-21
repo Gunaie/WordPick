@@ -2,7 +2,7 @@ name: english_study
 description: "跨端英语学习工具：英美双发音、四六级/考研词库、拼写练习、错题本与笔记"
 publish_to: 'none'
 
-version: 0.19.0+19
+version: 0.22.0+22
 
 environment:
   sdk: ^3.13.7
@@ -46,6 +46,9 @@ dependencies:
 
   # 端上离线文字识别（中文 + 拉丁，仅 Android / iOS，模型随包）
   google_mlkit_text_recognition: ^1.0.3
+
+  # FSRS-6 间隔重复调度（P1 评估用，迁移后替换自实现 SM-2）
+  fsrs: ^2.0.1
 
 dev_dependencies:
   flutter_test:

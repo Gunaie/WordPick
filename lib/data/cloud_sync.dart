@@ -76,6 +76,13 @@ class CloudSync {
         due: DateTime.tryParse(m['due'] as String? ?? '') ?? DateTime.now(),
         updatedAt:
             DateTime.tryParse(m['updated_at'] as String? ?? '') ?? DateTime.now(),
+        stability: (m['stability'] as num?)?.toDouble(),
+        difficulty: (m['difficulty'] as num?)?.toDouble(),
+        fsrsState: m['fsrs_state'] as String?,
+        fsrsStep: (m['fsrs_step'] as num?)?.toInt(),
+        lastReview: m['last_review'] == null
+            ? null
+            : DateTime.tryParse(m['last_review'] as String),
       );
     }
     return out;
@@ -95,6 +102,14 @@ class CloudSync {
           'lapses': e.value.lapses,
           'due': e.value.due.toIso8601String(),
           'updated_at': e.value.updatedAt.toIso8601String(),
+          // FSRS 字段仅在有值时上传：SM-2 数据不带这些键，
+          // 云端未 ALTER 加列也能正常同步（开启 FSRS 前需先在云端补列）
+          if (e.value.stability != null) 'stability': e.value.stability,
+          if (e.value.difficulty != null) 'difficulty': e.value.difficulty,
+          if (e.value.fsrsState != null) 'fsrs_state': e.value.fsrsState,
+          if (e.value.fsrsStep != null) 'fsrs_step': e.value.fsrsStep,
+          if (e.value.lastReview != null)
+            'last_review': e.value.lastReview!.toIso8601String(),
         }
     ];
     final r = await _client

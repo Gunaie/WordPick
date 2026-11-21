@@ -8,7 +8,7 @@
 --   * note 用软删除（deleted），保证跨端删除也能同步
 --   * 主键均可在客户端生成，避免多端自增冲突
 
--- ── 1. 学习进度（SM-2 状态）─────────────────────────────
+-- ── 1. 学习进度（FSRS-6 默认，SM-2 字段保留用于回滚）──────
 create table if not exists review_state (
   user_id     text             not null default 'me',
   word_key    text             not null,
@@ -18,8 +18,21 @@ create table if not exists review_state (
   lapses      integer          not null default 0,
   due         timestamptz      not null default now(),
   updated_at  timestamptz      not null default now(),
+  stability   double precision,
+  difficulty  double precision,
+  fsrs_state  text,
+  fsrs_step   integer,
+  last_review timestamptz,
   primary key (user_id, word_key)
 );
+
+-- 已建过旧表的库：下面 5 句必须执行（幂等，可重复运行）。
+-- v0.22 起默认 FSRS-6，评分会写入这些字段；缺列会导致同步报 42703，见 ISSUE-035。
+alter table review_state add column if not exists stability double precision;
+alter table review_state add column if not exists difficulty double precision;
+alter table review_state add column if not exists fsrs_state text;
+alter table review_state add column if not exists fsrs_step integer;
+alter table review_state add column if not exists last_review timestamptz;
 
 create index if not exists review_state_due_idx
   on review_state (user_id, due);

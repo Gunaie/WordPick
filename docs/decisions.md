@@ -51,17 +51,17 @@
 | 风险 | 有道是内部接口，可能被封。应对：dio 500ms 超时 + 熔断 + 本地缓存 |
 | 状态 | ✅ 已定 |
 
-## D05 · 间隔重复算法：SM-2 → FSRS（⚠️ 待重开）
+## D05 · 间隔重复算法：SM-2 → FSRS-6（✅ 已定，已设为默认）
 
 | 项 | 内容 |
 |---|---|
-| 日期 | 2026-11-02 |
-| 初始决策 | v1.0 上 SM-2（`flutter_spaced_repetition`），v2.0 升级 FSRS |
-| 理由 | SM-2 成熟稳定、调试容易、Anki 验证 20 年 |
-| 新发现 | Anki **2024.11 起 FSRS 已成为默认算法**；`dart_srs` 包已支持 FSRS-6（纯 Dart，生产就绪）；FSRS 比 SM-2 预测精度高 30-50% |
-| 替代方案 | 直接上 `dart_srs` FSRS-6（v1.0） |
-| 需要决策 | 是否跳过 SM-2 直接上 FSRS？ |
-| 状态 | ⚠️ 待重开讨论 |
+| 日期 | 2026-11-21（v0.21 双引擎 → v0.22 默认 FSRS） |
+| 决策 | **默认 FSRS-6**，SM-2 保留为可切换的回滚基线；设置页随时切换，数据无损 |
+| 评估结论 | 实测 A/B：相同复习序列下 FSRS 间隔更自适应（连续 good 约 2.1×、easy 大幅拉长、hard 反而缩短），1 年模拟少 14% 复习；`fsrs` 2.0.1 为官方 FSRS-6、MIT、纯 Dart、仅依赖 `meta`、六端含 Web 全支持 |
+| 实施策略 | ① 双引擎并存（`SrsEngine.next(algorithm:)`），SM-2 实现冻结不变；② **懒迁移**：已有 SM-2 词条下次评分时才转 FSRS（stability≈interval、difficulty 从 ease 反推），旧到期日不受影响；③ **时区边界**：FSRS 用 UTC，传入 `.toUtc()`、取回 due 转 `.toLocal()`，现有数据零偏移；④ **可无损回滚**：SM-2 字段始终保留，切回即恢复 |
+| 评分分化 | `autoGrade` 随算法分化：FSRS 模式答对一律 good（避免自动 easy 导致间隔暴涨），easy 留给用户手动选；SM-2 模式保持 reps≥3→easy 不变 |
+| 云端依赖 | FSRS 为默认后，评分写入的 5 个 FSRS 字段会随 push 上传；升级 v0.22 需在 CloudBase 对 `review_state` 执行 ALTER 加列（`stability` / `difficulty` / `fsrs_state` / `fsrs_step` / `last_review`），同 ISSUE-033 模式，否则进度同步报 `column does not exist`。**已于 2026-11-21 执行并只读校验通过（HTTP 200）** |
+| 状态 | ✅ 已定：阶段 A（双引擎）/ B（试用）/ C（翻转默认）全部完成，v0.22 起默认 FSRS-6，SM-2 作为回滚选项保留 |
 
 ## D06 · 静态词表：打包进 APP（已定）
 
@@ -157,7 +157,7 @@
 | 决策 | `lib/domain/srs.dart` 自实现 SM-2（约 50 行）+ 8 个单元测试 |
 | 理由 | ① 逻辑简单、可测可控；② 规避第三方包维护风险（`dart_srs` 1.0.1 为 5 个月前发布，`flutter_spaced_repetition` 1.0.0）；③ 接口固定为 `SrsEngine.next()`，将来换 FSRS-6 只改实现 |
 | 待办 | 累积 3 个月复习数据后，评估切换 FSRS-6（Anki 2024.11 起已默认 FSRS） |
-| 状态 | ✅ 已定（测试通过） |
+| 状态 | ✅ 已定（v0.21 起新增 FSRS-6 可选引擎，SM-2 仍为默认，切换见 D05） |
 
 ## D14 · CloudBase Flutter SDK 的真实名称与能力（修正 D02 描述）
 

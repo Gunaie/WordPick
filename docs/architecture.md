@@ -192,7 +192,7 @@ importWordsToBook()：复用粘贴导入的解析、去重与重复次数累加
 
 | 表 | 内容 |
 |---|---|
-| `review_state` | 每个词的学习状态（SM-2 参数、下次复习、遗忘次数） |
+| `review_state` | 每个词的学习状态（FSRS-6 参数 / SM-2 回滚参数、下次复习、遗忘次数） |
 | `note` | 笔记（UUID + 软删除；`title` / `tags` 为 M6 新增列） |
 | `daily_stat` | 每日新学 / 复习计数 |
 | `meta` | 杂项键值（自建单词本 `custom_books`、易混词组 `confusable_groups`、设置等；收藏功能已下线） |

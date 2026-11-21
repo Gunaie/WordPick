@@ -80,15 +80,36 @@ class SqliteProgressStore implements ProgressStore {
   void _migrate() {
     _db.execute('''
       CREATE TABLE IF NOT EXISTS review_state (
-        word_key   TEXT PRIMARY KEY,
-        ease       REAL    NOT NULL,
-        interval   INTEGER NOT NULL,
-        reps       INTEGER NOT NULL,
-        lapses     INTEGER NOT NULL,
-        due        TEXT    NOT NULL,
-        updated_at TEXT    NOT NULL
+        word_key    TEXT PRIMARY KEY,
+        ease        REAL    NOT NULL,
+        interval    INTEGER NOT NULL,
+        reps        INTEGER NOT NULL,
+        lapses      INTEGER NOT NULL,
+        due         TEXT    NOT NULL,
+        updated_at  TEXT    NOT NULL,
+        stability   REAL,
+        difficulty  REAL,
+        fsrs_state  TEXT,
+        fsrs_step   INTEGER,
+        last_review TEXT
       )
     ''');
+
+    // v0.21 起支持 FSRS-6，旧库就地补列（全新库已含，跳过）
+    final reviewColumns = _db
+        .select('PRAGMA table_info(review_state)')
+        .map((r) => r['name'].toString())
+        .toSet();
+    void addColIfMissing(String name, String type) {
+      if (!reviewColumns.contains(name)) {
+        _db.execute('ALTER TABLE review_state ADD COLUMN $name $type');
+      }
+    }
+    addColIfMissing('stability', 'REAL');
+    addColIfMissing('difficulty', 'REAL');
+    addColIfMissing('fsrs_state', 'TEXT');
+    addColIfMissing('fsrs_step', 'INTEGER');
+    addColIfMissing('last_review', 'TEXT');
 
     // 旧版本的 note 表用的是 INTEGER 自增主键；跨端同步需要客户端生成的 TEXT uuid
     final noteCols = _db.select('PRAGMA table_info(note)');
@@ -181,6 +202,13 @@ class SqliteProgressStore implements ProgressStore {
           lapses: (r['lapses'] as num).toInt(),
           due: DateTime.parse(r['due'] as String),
           updatedAt: DateTime.parse(r['updated_at'] as String),
+          stability: (r['stability'] as num?)?.toDouble(),
+          difficulty: (r['difficulty'] as num?)?.toDouble(),
+          fsrsState: r['fsrs_state'] as String?,
+          fsrsStep: (r['fsrs_step'] as num?)?.toInt(),
+          lastReview: r['last_review'] == null
+              ? null
+              : DateTime.tryParse(r['last_review'] as String),
         ),
     };
   }
@@ -189,15 +217,22 @@ class SqliteProgressStore implements ProgressStore {
   Future<void> upsert(String wordKey, ReviewState s) async {
     _db.execute(
       '''
-      INSERT INTO review_state (word_key, ease, interval, reps, lapses, due, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO review_state
+        (word_key, ease, interval, reps, lapses, due, updated_at,
+         stability, difficulty, fsrs_state, fsrs_step, last_review)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(word_key) DO UPDATE SET
         ease = excluded.ease,
         interval = excluded.interval,
         reps = excluded.reps,
         lapses = excluded.lapses,
         due = excluded.due,
-        updated_at = excluded.updated_at
+        updated_at = excluded.updated_at,
+        stability = excluded.stability,
+        difficulty = excluded.difficulty,
+        fsrs_state = excluded.fsrs_state,
+        fsrs_step = excluded.fsrs_step,
+        last_review = excluded.last_review
       ''',
       [
         wordKey,
@@ -207,6 +242,11 @@ class SqliteProgressStore implements ProgressStore {
         s.lapses,
         s.due.toIso8601String(),
         s.updatedAt.toIso8601String(),
+        s.stability,
+        s.difficulty,
+        s.fsrsState,
+        s.fsrsStep,
+        s.lastReview?.toIso8601String(),
       ],
     );
   }
