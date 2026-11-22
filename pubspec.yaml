@@ -1,5 +1,5 @@
 name: english_study
-description: "跨端英语学习工具：英美双发音、四六级/考研词库、拼写练习、错题本与笔记"
+description: "跨端英语学习工具：自建单词本、英美双发音、四选一与拼写练习、FSRS-6 复习、笔记与学习统计"
 publish_to: 'none'
 
 version: 0.22.0+22
@@ -13,8 +13,6 @@ dependencies:
 
   # Flutter 3.50 起 package:flutter/material.dart 已弃用，官方后继为 material_ui
   material_ui: ^1.11.0
-
-  cupertino_icons: ^1.0.8
 
   # HTTP 请求（有道 / Free Dictionary）
   http: ^1.6.0
@@ -41,19 +39,28 @@ dependencies:
   # 原生端导出文件调起系统分享
   share_plus: ^10.1.4
 
-  # 拍照识别手写：取图（相机 / 相册）
-  image_picker: ^1.2.4
-
-  # 端上离线文字识别（中文 + 拉丁，仅 Android / iOS，模型随包）
-  google_mlkit_text_recognition: ^1.0.3
-
-  # FSRS-6 间隔重复调度（P1 评估用，迁移后替换自实现 SM-2）
+  # FSRS-6 间隔重复调度（默认算法，SM-2 可回滚）
   fsrs: ^2.0.1
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+# sqlite3 3.9 起用 native asset hook 从 GitHub Release 下载预编译库。
+# - Windows：用系统自带的 winsqlite3.dll（离线、免下载），测试与桌面构建都走它；
+#   本项目只用到基础建表 / PRAGMA，系统库够用。
+# - Android / iOS：仍从 Release 下载，直连 github.com 超时，走 ghproxy.net 镜像
+#   （ghfast.top 对 release 大文件间歇性卡住：HEAD 200 但下载 0 字节；ghproxy.net 实测可下）。
+hooks:
+  user_defines:
+    sqlite3:
+      source:
+        windows: system
+        default: sqlite3
+      name:
+        windows: winsqlite3
+      url_pattern: "https://ghproxy.net/https://github.com/simolus3/sqlite3.dart/releases/download/$RELEASE_TAG/$FILENAME"
 
 flutter:
   uses-material-design: true

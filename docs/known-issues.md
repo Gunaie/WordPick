@@ -346,6 +346,18 @@
 | 结论 | 与 ISSUE-027 同一根因（缺 VS C++ 工作负载 + 未开开发者模式）。首次构建时 `windows/flutter/ephemeral` 会被生成出约 262 MB 的中间产物，该目录已在清理时删除，属可再生文件 |
 | 影响 | 本轮验证以 **Android 真机 + Web** 为准 |
 
+### ISSUE-036 · release APK 构建被内存、GitHub 与 R8 三处卡住 ✅
+
+| 项 | 内容 |
+|---|---|
+| 现象 | v0.22 打包依次失败三次：① Gradle JVM `Native memory allocation (mmap) failed`；② 之后 Dart VM `Out of memory`；③ `:app:minifyReleaseWithR8` 报 `Missing class ...DevanagariTextRecognizerOptions` |
+| 根因 | ① 原 `android/gradle.properties` 用 `-Xmx8G -XX:MaxMetaspaceSize=4G`，本机 15.5GB 内存、构建时系统 commit 空闲仅约 1.5GB；② `sqlite3` 3.9 的 native asset hook 从 `github.com` 下载预编译 `.so`，本机直连超时（`errno=121`）；③ ML Kit 只在运行时加载所需语言模型，梵文/日文/韩文类未打包，R8 按默认规则判为 Missing class |
+| 修复 | ① 堆降到 `-Xmx2G`、Metaspace 768m，`org.gradle.workers.max=2`，Kotlin 改 `in-process` 编译；② `pubspec.yaml` 增加 `hooks.user_defines.sqlite3.url_pattern` 指向 `ghproxy.net` 镜像（hook 会替换 `$RELEASE_TAG`/`$FILENAME`），2026-11-22 实测可下且 sha256 校验通过；原 `ghfast.top` 对 release 大文件间歇性卡住（HEAD 返回 200 但下载 0 字节），已弃用；Windows 端（单测 / 桌面）另配 `source: system` + `name: winsqlite3`，直接用系统自带 `winsqlite3.dll`，完全离线不依赖下载；③ 新增 `android/app/proguard-rules.pro`（`-dontwarn com.google.mlkit.vision.text.{devanagari,japanese,korean}.**`）并在 `buildTypes.release` 接入 |
+| 验证 | `scripts/build_apk.cmd` 成功产出 `E:\APK\app-release.apk`（OCR 移除前 87.1MB；移除后最终 19.6MB，v0.22.0+22） |
+| 注意 | 构建前若系统 commit 余量不足 3GB，先关闭占用大的后台进程（本次结束了 6 个 redhat.java 语言服务器，释放约 5GB）；当前默认镜像为 `ghproxy.net`，若不可用可换 `gh-proxy.com` 等，改 `pubspec.yaml` 的 `url_pattern` 即可（文件名形如 `libsqlite3.arm64.android.so`，sha256 见 `asset_hashes.dart`） |
+| 状态 | ✅ 已修复 |
+| 备注 | 2026-11-22 拍照识别功能移除后，ML Kit 依赖与对应 R8 规则已删除，`proguard-rules.pro` 当前为空占位 |
+
 ### 打包环境（已就绪，可直接复用）
 
 | 项 | 值 |
@@ -365,23 +377,27 @@
 | 规避 | 暂不处理；若将来迁移 Wasm，可给构建加 `--no-wasm-dry-run` 或替换/升级 flutter_tts |
 | 状态 | 🟢 可忽略 |
 
-### ISSUE-033 · 云同步旧库缺 note.title / note.tags 会导致推送失败 🟡
+### ISSUE-033 · 云同步旧库缺 note.title / note.tags 会导致推送失败 ✅（已归档）
 
 | 项 | 内容 |
 |---|---|
 | 现象 | M6 起笔记新增 `title` / `tags`，同步 push 会带上这两列；未补列的 CloudBase 旧库会返回 `column does not exist`，整批笔记同步失败 |
 | 影响 | 仅影响已建过 `note` 表的云端环境；本地 SQLite 已在启动时自动 `ALTER TABLE`，Web localStorage 缺字段自动降级 |
-| 规避 | 在云端 SQL 编辑器执行 `docs/cloudbase_schema.sql` 中「已建过旧表的库」段落的两句 `ALTER TABLE note ADD COLUMN ...`，然后点设置页「立即同步」 |
-| 状态 | 🟡 需手工执行一次迁移 |
+| 规避 | 在云端 SQL 编辑器执行 `docs/cloudbase_schema.sql` 中 `note` 段落下的两句 `ALTER TABLE note ADD COLUMN IF NOT EXISTS ...`（语句已取消注释，整段粘贴即可；幂等可重复运行），然后点设置页「立即同步」验证 |
+| 处理记录 | 2026-11-21：云端补列前只读查询报 `DATABASE_42703`；执行取消注释后的两句 ALTER 并重跑，`note?select=title,tags` 返回 HTTP 200 |
+| 状态 | ✅ 已解决（云端结构已补齐，笔记同步可用） |
 
-### ISSUE-034 · 手写识别准确率与包体积限制 🟡
+### ISSUE-034 · 手写识别准确率与包体积限制 ✅（功能已移除）
 
 | 项 | 内容 |
 |---|---|
 | 现象 | 端上 ML Kit 对书写规整的英文单词较稳，连笔英文与中文手写释义误识别率较高；中文模型随包，APK 体积约增加 20–40MB |
 | 影响 | 仅 Android / iOS 显示「拍照识别手写」入口，Web / 桌面不提供；识别结果必须经候选校对页确认后才写入词书 |
 | 规避 | 草稿尽量一行写「单词 + 释义」；拍照正对、光线均匀；错词在候选页点开，可用离线词典回填 |
-| 状态 | 🟡 产品已内置校对兜底，准确率受端上模型限制 |
+| 处理记录 | 2026-11-22：接入 PaddleOCR PP-OCRv6 tiny（ONNX Runtime，端上离线，模型约 6MB，Apache-2.0）；APK 仅保留 arm64-v8a，产物 73MB（未裁剪时为 141MB）<br>2026-11-22 修识别完全失败：① 字典 `ppocr_keys_v6.txt` 生成时被 `trim()` 吃掉全角空格 U+3000（第 617 项），6904→6903 项，导致从该位起 6287 个类别全部错位，现已按 `inference.yml` 重建为 6904 项（+blank+末尾空格 = 模型输出 6906 类）；② 识别前用 `image` 包 `bakeOrientation` 修正 EXIF 方向（相机照片像素未旋转时整页横躺，检测必然失败）；③ `maxSideLen` 960/1280→1920；④ 丢弃置信度 <0.30 的行，平均置信度 <0.45 时回退 ML Kit<br>2026-11-22 二次修复：① ML Kit 报 TextRecognizerError，判断为 R8 裁掉 manifest/反射注册的识别器类，`proguard-rules.pro` 增加 `com.google.mlkit.**` / `mlkit_vision_text*` / `mlkit_common` 的 keep（+131KB）；② 改为三级回退「ML Kit 中文 → ML Kit 英文 → PaddleOCR」，任一环失败都继续下一个，全部失败时弹窗展示各引擎原始错误并支持一键复制；③ Paddle 召回调参：曾试 `useDilation: true` + `0.12/0.3/1.6` 的激进取值，实测反而更差（膨胀把相邻行粘成一块），已回滚为 `0.2/0.4/1.4`；`maxSideLen 2560`，置信度门槛 0.20（弱结果保留给校对页，平均 <0.55 仅提示不拦截）<br>2026-11-22 云端方案（档位 2）：① 新增百度手写识别为可选引擎，20s 超时 + 瞬时错误一次重试 + token 缓存；② 图片超 4MB / 长边超 4096 时自动重编码缩放；③ 请求开启 `detect_direction` 与 `probability`，返回逐行置信度与坐标；④ 无密钥/断网/额度用尽自动降级到 Paddle→ML Kit，warning 说明原因，不再直接报错；⑤ 解析层按坐标恢复阅读顺序，置信度贯通到校对页（<60% 标黄）；⑥ 设置页新增「测试连接」（只换 token 不耗次数）、保存后切换提示与本月用量 |
+| 模型升级 | PP-OCRv6 tiny → v5 mobile（规格外）→ **PP-OCRv6 small**（det 9.9MB + rec 21.2MB + 字典 75KB）。插件官方仅声明支持 v6 tiny/small，v5 属规格外使用。核验：rec 输出 18710 类 = 字典 18708 + blank + 末尾空格，逐项对齐；预处理与 v6 tiny 一致。APK 92.8MB |
+| 识别增强 | 用同一张手写样张在 PC 端（rapidocr + 同一套 v6 small 模型/字典）实测：26 行全部检出，13 个英文单词全对，中文释义 13 条中 11 条完全正确（`鞭子`→`革便子`、`公寓`→`么寓` 两处字形近似错），平均置信度 0.952，det 0.40s + rec 0.18s。带下划线的原图（0.952）略优于去线图（0.944），故移除「去下划线」预处理，只保留 EXIF 摆正 + 长边 2200。**根因确认：默认引擎为 ML Kit，其图片 OCR 面向印刷体，对照片手写几乎无输出；只要 ML Kit 返回非空就不再调用 PaddleOCR。** 现将默认引擎改为 PaddleOCR（存储键改为 `ocr_engine_v2`，强制旧设备回落） |
+| 状态 | ✅ 已解决（2026-11-22 移除拍照识别：删除 ML Kit / PaddleOCR / 百度云端链路、模型资源、相机权限与设置项；实际流程改为「大模型输出 JSON → 粘贴导入」，APK 从 92.9MB 降至 19.6MB） |
 
 ### ISSUE-035 · v0.22 起默认 FSRS-6，云端 review_state 必须先补列 ✅（已归档）
 

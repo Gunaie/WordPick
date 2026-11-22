@@ -37,7 +37,7 @@ class TodayPage extends StatelessWidget {
             Row(
               children: [
                 Text(
-                  '英语学习',
+                  '拾词',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppColors.textSecondary,
                     letterSpacing: 1.2,

@@ -194,8 +194,10 @@ class AppState extends ChangeNotifier {
   Future<void> updateSettings(AppSettings next) async {
     _settings = next;
     AudioService.isUk = next.useUkAccent;
-    await _store.saveSettings(next);
+    // 先通知界面再落盘：本地存储写入失败时设置项仍然立即生效，
+    // 不会出现「点了没反应」的观感
     notifyListeners();
+    await _store.saveSettings(next);
   }
 
   /// 从备份 JSON 合并恢复：词书 / 笔记 / 复习状态 / 每日统计。

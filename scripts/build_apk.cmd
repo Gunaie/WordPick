@@ -41,7 +41,8 @@ if %ERRORLEVEL% GEQ 8 (
 
 echo [2/4] Building release APK (first run about 3 min) ...
 pushd "%DST%"
-call "%FLUTTER%" build apk --release --android-skip-build-dependency-validation
+rem arm64 only keeps the APK small; drop --target-platform to ship 32-bit too.
+call "%FLUTTER%" build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation
 if errorlevel 1 (
   popd
   echo.

@@ -29,11 +29,23 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // 只保留 arm64-v8a；现代设备已覆盖，裁掉另外两个 ABI 可显著减小体积。
+            // 需要 32 位设备时删掉这两行即可。
+            excludes += listOf("lib/armeabi-v7a/**", "lib/x86_64/**")
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
@@ -46,9 +58,4 @@ kotlin {
 
 flutter {
     source = "../.."
-}
-
-dependencies {
-    // ML Kit 中文识别模型：Flutter 插件里只声明为 compileOnly，需应用显式打包
-    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
 }

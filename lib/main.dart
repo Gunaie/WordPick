@@ -47,7 +47,7 @@ class _EnglishStudyAppState extends State<EnglishStudyApp>
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '英语学习',
+      title: '拾词',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
       home: ListenableBuilder(

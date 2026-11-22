@@ -1,5 +1,4 @@
 import 'package:english_study/domain/custom_word_parser.dart';
-import 'package:english_study/domain/ocr_candidates.dart';
 import 'package:english_study/domain/word.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,16 +45,16 @@ void main() {
         'abandon [əˈbændən] v. 放弃; 放任',
       );
       expect(r.added, hasLength(2));
-      expect(
-        r.added[0].defs.map((d) => '${d.pos}|${d.cn}').toList(),
-        ['n.|苹果', 'n.|苹果公司'],
-      );
+      expect(r.added[0].defs.map((d) => '${d.pos}|${d.cn}').toList(), [
+        'n.|苹果',
+        'n.|苹果公司',
+      ]);
       expect(r.added[0].uk, isEmpty);
       expect(r.added[1].uk, 'əˈbændən');
-      expect(
-        r.added[1].defs.map((d) => '${d.pos}|${d.cn}').toList(),
-        ['v.|放弃', 'v.|放任'],
-      );
+      expect(r.added[1].defs.map((d) => '${d.pos}|${d.cn}').toList(), [
+        'v.|放弃',
+        'v.|放任',
+      ]);
     });
 
     test('区分已存在与无法识别', () {
@@ -75,6 +74,80 @@ void main() {
       );
       expect(r.added.map((w) => w.w).toList(), ['serendipity']);
       expect(r.repeated, {'serendipity': 1, 'resilient': 1});
+    });
+
+    test('支持 JSON 数组：word + defs 字符串', () {
+      final r = parseCustomWordsDetailed('''
+[
+  {"word": "impartial", "defs": ["a. 公正的"]},
+  {"word": "apart", "defs": ["ad. 相距；除外"]},
+  {"word": "terrace", "defs": ["n. 露台，梯田"]}
+]
+''');
+      expect(r.added.map((w) => w.w).toList(), [
+        'impartial',
+        'apart',
+        'terrace',
+      ]);
+      expect(r.added[0].defs.single.pos, 'a.');
+      expect(r.added[1].defs.single.pos, 'ad.');
+      expect(r.added[2].primaryDefinition, '露台，梯田');
+      expect(r.invalid, isEmpty);
+    });
+
+    test('支持 words 包裹、对象释义与音标', () {
+      final r = parseCustomWordsDetailed('''
+{"words": [
+  {"w": "whip", "phonetic": "/wɪp/", "defs": [{"pos": "n.", "cn": "鞭子"}]}
+]}
+''');
+      expect(r.added.single.w, 'whip');
+      expect(r.added.single.uk, 'wɪp');
+      expect(r.added.single.us, 'wɪp');
+      expect(r.added.single.defs.single.pos, 'n.');
+      expect(r.added.single.defs.single.cn, '鞭子');
+    });
+
+    test('JSON 内重复词只累加次数', () {
+      final r = parseCustomWordsDetailed(
+        '[{"word":"impart","defs":["v. 传达"]},'
+        '{"word":"whip","defs":["n. 鞭子"]},'
+        '{"word":"whip","defs":["n. 鞭子"]}]',
+        repeatable: {'impart'},
+      );
+      expect(r.added.map((w) => w.w).toList(), ['whip']);
+      expect(r.repeated, {'impart': 1, 'whip': 1});
+    });
+
+    test('不是合法 JSON 时回退按行解析', () {
+      final r = parseCustomWordsDetailed('[1] apple 苹果');
+      expect(r.added.single.w, 'apple');
+      expect(r.added.single.primaryDefinition, '苹果');
+    });
+
+    test('兼容 Markdown 代码块与前后说明文字', () {
+      final r = parseCustomWordsDetailed('''
+以下是整理好的词表：
+```json
+[
+  {"word": "whip", "defs": ["n. 鞭子"]},
+  {"word": "ranch", "defs": ["n. 大牧场"]}
+]
+```
+共 2 个词。
+''');
+      expect(r.added.map((w) => w.w).toList(), ['whip', 'ranch']);
+      expect(r.invalid, isEmpty);
+    });
+
+    test('容忍模型输出里的尾逗号', () {
+      final r = parseCustomWordsDetailed('''
+[
+  {"word": "whip", "defs": ["n. 鞭子"],},
+  {"word": "ranch", "defs": ["n. 大牧场"],},
+]
+''');
+      expect(r.added.map((w) => w.w).toList(), ['whip', 'ranch']);
     });
 
     test('词条 JSON 可往返，且兼容旧数据', () {
@@ -99,6 +172,33 @@ void main() {
       });
       expect(legacy.addedAt, isNull);
       expect(legacy.addCount, 1);
+    });
+
+    test('导入时同词性同释义自动去重', () {
+      final r = parseCustomWordsDetailed('''
+[
+  {"word": "apple", "defs": [
+    {"pos": "n.", "cn": "苹果"},
+    {"pos": "n.", "cn": "苹果"},
+    {"pos": "v.", "cn": "苹果"},
+    {"pos": "n.", "cn": "苹果公司"}
+  ]}
+]
+''');
+      expect(r.added.single.defs.map((d) => '${d.pos}|${d.cn}').toList(), [
+        'n.|苹果',
+        'v.|苹果',
+        'n.|苹果公司',
+      ]);
+    });
+
+    test('文本分号多释义也去重，并忽略空白差异', () {
+      // 第二条与第一条仅多余空格不同，应合并为一条
+      final r = parseCustomWordsDetailed('apple n. 苹果;  n.  苹果; n. 苹果公司');
+      expect(r.added.single.defs.map((d) => '${d.pos}|${d.cn}').toList(), [
+        'n.|苹果',
+        'n.|苹果公司',
+      ]);
     });
 
     test('单词本 JSON 可往返', () {
@@ -127,59 +227,12 @@ void main() {
     });
   });
 
-  group('拍照识别候选解析', () {
-    test('同行「单词 + 释义」直接成候选', () {
-      final r = parseOcrText('serendipity 意外发现');
-      expect(r.candidates, hasLength(1));
-      expect(r.candidates.single.word.w, 'serendipity');
-      expect(r.candidates.single.word.primaryDefinition, '意外发现');
-      expect(r.unparsed, isEmpty);
-    });
-
-    test('单词与释义分两行时合并', () {
-      final r = parseOcrText('abandon\n放弃');
-      expect(r.candidates, hasLength(1));
-      expect(r.candidates.single.word.w, 'abandon');
-      expect(r.candidates.single.word.primaryDefinition, '放弃');
-    });
-
-    test('释义行带词性与多释义也能合并', () {
-      final r = parseOcrText('abandon\nv. 放弃; 抛弃');
-      final defs = r.candidates.single.word.defs;
-      expect(defs.map((d) => d.cn), ['放弃', '抛弃']);
-      expect(defs.map((d) => d.pos), ['v.', 'v.']);
-    });
-
-    test('两个纯单词行不会被误合并', () {
-      final r = parseOcrText('apple\nbanana');
-      expect(r.candidates.map((c) => c.word.w), ['apple', 'banana']);
-      expect(r.candidates.every((c) => c.word.defs.isEmpty), isTrue);
-    });
-
-    test('下一行本身是完整词条时保持独立', () {
-      final r = parseOcrText('apple\norange 橙子');
-      expect(r.candidates.map((c) => c.word.w), ['apple', 'orange']);
-      expect(r.candidates.last.word.primaryDefinition, '橙子');
-    });
-
-    test('没有英文的行记为无法识别', () {
-      final r = parseOcrText('apple 苹果\n这一行没有英文');
-      expect(r.candidates, hasLength(1));
-      expect(r.unparsed, ['这一行没有英文']);
-    });
-
-    test('同一次识别里的重复词只保留一条', () {
-      final r = parseOcrText('apple 苹果\napple 苹果');
-      expect(r.candidates, hasLength(1));
-    });
-
-    test('单行解析沿用批量导入规则', () {
-      final w = parseCustomWordLine('1. abandon [əˈbændən] v. 放弃');
-      expect(w?.w, 'abandon');
-      expect(w?.uk, 'əˈbændən');
-      expect(w?.defs.single.pos, 'v.');
-      expect(w?.defs.single.cn, '放弃');
-      expect(parseCustomWordLine('苹果'), isNull);
-    });
+  test('单行解析沿用批量导入规则', () {
+    final w = parseCustomWordLine('1. abandon [əˈbændən] v. 放弃');
+    expect(w?.w, 'abandon');
+    expect(w?.uk, 'əˈbændən');
+    expect(w?.defs.single.pos, 'v.');
+    expect(w?.defs.single.cn, '放弃');
+    expect(parseCustomWordLine('苹果'), isNull);
   });
 }

@@ -29,13 +29,17 @@ bool canBuildQuiz(List<Word> pool) =>
     pool.where((w) => w.defs.isNotEmpty && w.defs.first.cn.trim().isNotEmpty).length >= 4;
 
 /// 为 [word] 生成四选一题目；词池不足或无释义时返回 null
+///
+/// 当一个词有多条释义时，随机选一条作为本次考点，实现「按释义轮换出题」——
+/// 同一个词多次复习会覆盖到不同释义，而不是永远只考第一条。
 QuizQuestion? buildQuiz(Word word, List<Word> pool, {Random? random}) {
   if (word.defs.isEmpty) return null;
-  final correctSense = word.defs.first;
+  final r = random ?? Random();
+  final senseIndex = word.defs.length > 1 ? r.nextInt(word.defs.length) : 0;
+  final correctSense = word.defs[senseIndex];
   final correct = correctSense.cn.trim();
   if (correct.isEmpty) return null;
 
-  final r = random ?? Random();
   final seen = <String>{correct.toLowerCase()};
   final (pos, text) = (correctSense.pos, correct);
 
@@ -84,4 +88,10 @@ ReviewGrade autoGrade({
   if (!correct) return ReviewGrade.again;
   if (useFsrs) return ReviewGrade.good;
   return reps >= 3 ? ReviewGrade.easy : ReviewGrade.good;
+}
+
+/// 完成页的复习间隔文案：「今天复习」或「N 天后复习」
+String dueLabel(DateTime due, {DateTime? now}) {
+  final days = due.difference(now ?? DateTime.now()).inDays;
+  return days <= 0 ? '今天复习' : '$days 天后复习';
 }

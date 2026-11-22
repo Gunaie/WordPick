@@ -29,7 +29,20 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
+    // 设置页是 Navigator 路由页，不在主页 ListenableBuilder 下，
+    // 需自行监听 AppState，否则下拉/开关保存后界面不刷新
+    state.addListener(_onStateChanged);
     _loadCacheSize();
+  }
+
+  void _onStateChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    state.removeListener(_onStateChanged);
+    super.dispose();
   }
 
   Future<void> _loadCacheSize() async {
@@ -425,7 +438,10 @@ class _SettingsPageState extends State<SettingsPage> {
                               value: state.settings.useUkAccent,
                               underline: const SizedBox.shrink(),
                               items: const [
-                                DropdownMenuItem(value: true, child: Text('英音')),
+                                DropdownMenuItem(
+                                  value: true,
+                                  child: Text('英音'),
+                                ),
                                 DropdownMenuItem(
                                   value: false,
                                   child: Text('美音'),
@@ -467,8 +483,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             trailing: _countDropdown(
                               state.settings.reviewWordsPerGroup,
                               (v) => state.updateSettings(
-                                state.settings
-                                    .copyWith(reviewWordsPerGroup: v),
+                                state.settings.copyWith(reviewWordsPerGroup: v),
                               ),
                               options: AppSettings.reviewOptions,
                             ),
@@ -504,9 +519,13 @@ class _SettingsPageState extends State<SettingsPage> {
                               underline: const SizedBox.shrink(),
                               items: const [
                                 DropdownMenuItem(
-                                    value: true, child: Text('FSRS-6')),
+                                  value: true,
+                                  child: Text('FSRS-6'),
+                                ),
                                 DropdownMenuItem(
-                                    value: false, child: Text('SM-2')),
+                                  value: false,
+                                  child: Text('SM-2'),
+                                ),
                               ],
                               onChanged: (v) async {
                                 if (v == null) return;

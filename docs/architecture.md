@@ -21,7 +21,6 @@
 | 音频播放 | audioplayers + flutter_tts | ^6.8.1 / ^4.2.3 | `lib/services/audio_service.dart` |
 | 文件路径 | path_provider + path | ≥2.1.6 | `path_provider`, `path` |
 | 导出 | share_plus（原生）/ Blob（Web） | ^10.1.4 | `lib/services/export_service.dart` |
-| 拍照识别 | google_mlkit_text_recognition + image_picker | ^1.0.3 / ^1.2.4 | `lib/services/ocr_native.dart`（仅 Android / iOS） |
 | 其他 | uuid（笔记 ID）、web（条件导出） | — | `uuid`, `web` |
 
 > 与最初方案的差异：drift + build_runner 未采用（改手写 SQL）；Riverpod 未引入（D12）；
@@ -69,8 +68,7 @@ lib/
 │   ├── edit_distance.dart         拼写容错判定
 │   ├── spelling_hints.dart        拼写提示：首字母 / 音节 / 词根 / 四选一
 │   ├── markdown.dart              笔记 Markdown 块级解析（预览用）
-│   ├── custom_word_parser.dart    自建词文本解析（批量导入 / 拍照识别共用）
-│   ├── ocr_candidates.dart        OCR 文本行合并 → 候选词条（纯逻辑）
+│   ├── custom_word_parser.dart    自建词文本解析（批量导入 / JSON 导入）
 │   ├── confusable_group.dart      易混词组模型
 │   └── confusable_queue.dart      易混组在队列中的插入（纯函数）
 │
@@ -79,9 +77,7 @@ lib/
 │   ├── audio_cache.dart           缓存接口（native / web / stub 条件导出）
 │   ├── export_service.dart        导出落盘（share_plus / Blob 条件导出）
 │   ├── export_native.dart         原生：临时文件 + 系统分享
-│   ├── ocr_service.dart           拍照识别接口（native / stub 条件导出）
-│   ├── ocr_native.dart            ML Kit 离线识别 + image_picker 取图
-│   └── ocr_types.dart             取图来源等公共类型
+│   └── export_stub.dart           Web：降级提示
 │
 └── ui/                            页面
     ├── theme.dart                 配色 / 渐变背景 / 玻璃卡片 / 统一页头 PageHeader
@@ -165,26 +161,6 @@ AppState.restoreFromJson 合并：
   └─ 每日统计：同日期取较大值 → mergeDaily
   ↓ 有变更时触发一次 syncNow()
 ```
-
-### 拍照识别手写
-
-```
-词单详情 →「拍照识别手写」（仅 ocrSupported 为真的 Android / iOS 显示）
-  ↓ 弹层选择拍照 / 相册
-image_picker 取图（临时文件，不写入数据库）
-  ↓
-ocr_native.dart：ML Kit 中文模型端上离线识别 → 原始文本
-  ↓
-ocr_candidates.dart：合并「单词一行、释义下一行」的写法 → OcrScanResult
-  ↓
-候选校对页：逐条编辑 / 删除 → 确认
-  ↓
-importWordsToBook()：复用粘贴导入的解析、去重与重复次数累加
-```
-
-- Web / 桌面走 `ocr_stub.dart`，`ocrSupported = false`，界面不显示入口；`flutter build web` 不受影响。
-- 手写（尤其中文）准确率有限，产品上以「候选校对」兜底；中文识别模型随 APK 打包，约增加 20–40MB。
-- Android 侧需在 `android/app/build.gradle.kts` 显式引入 `com.google.mlkit:text-recognition-chinese`（Flutter 插件只声明 compileOnly）。
 
 ---
 

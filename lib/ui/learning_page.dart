@@ -32,13 +32,28 @@ class _LearningPageState extends State<LearningPage> {
   bool _quizMode = false;
 
   int _index = 0;
-  int _done = 0;
-  int _correct = 0;
 
   QuizQuestion? _question;
   int? _selected;
   bool _revealed = false;
   int _definedCount = 0;
+
+  /// 本轮答错过的词：答对后需要再做一次「看释义拼写」
+  final Set<String> _missed = {};
+
+  /// 本词答对后是否要先进入拼写环节
+  bool _spellNext = false;
+
+  /// 当前拼写环节的词；非 null 时界面切到拼写
+  Word? _spellTarget;
+  final TextEditingController _spellCtrl = TextEditingController();
+  final FocusNode _spellFocus = FocusNode();
+  String? _spellError;
+
+  /// 每个词最终完成后的到期日，用于小结「N 天后复习」
+  final Map<String, DateTime> _due = {};
+  final Map<String, Word> _doneWords = {};
+  final List<String> _order = [];
 
   /// 已完成的回合快照，键为队列下标；回看只读，不重新计分
   final Map<int, _RoundSnapshot> _history = {};
@@ -54,6 +69,8 @@ class _LearningPageState extends State<LearningPage> {
   @override
   void dispose() {
     _audio.dispose();
+    _spellCtrl.dispose();
+    _spellFocus.dispose();
     super.dispose();
   }
 
@@ -71,10 +88,16 @@ class _LearningPageState extends State<LearningPage> {
         pool.where((w) => w.defs.any((d) => d.cn.trim().isNotEmpty)).length;
     _quizMode = canBuildQuiz(pool);
     _index = 0;
-    _done = 0;
-    _correct = 0;
     _history.clear();
     _reviewIndex = null;
+    _missed.clear();
+    _spellNext = false;
+    _spellTarget = null;
+    _spellCtrl.clear();
+    _spellError = null;
+    _due.clear();
+    _doneWords.clear();
+    _order.clear();
     _prepare();
   }
 
@@ -108,10 +131,11 @@ class _LearningPageState extends State<LearningPage> {
     setState(() {
       _selected = i;
       _revealed = true;
-      _done += 1;
-      if (correct) _correct += 1;
+      // 答错过的词答对后，先做一次「看释义拼写」才算完成
+      _spellNext = correct && _missed.contains(word.key);
+      if (!correct) _missed.add(word.key);
     });
-    await widget.state.grade(
+    final next = await widget.state.grade(
       word,
       autoGrade(
         correct: correct,
@@ -119,6 +143,12 @@ class _LearningPageState extends State<LearningPage> {
         useFsrs: widget.state.settings.useFsrs,
       ),
     );
+    if (correct) {
+      _remember(word, next);
+    } else {
+      // 答错的词排到本轮末尾，其余单词过完后再考一次，直到答对
+      _queue.add(word);
+    }
   }
 
   Future<void> _rate(ReviewGrade grade) async {
@@ -129,12 +159,51 @@ class _LearningPageState extends State<LearningPage> {
       grade: grade,
       companion: _companions[word.key],
     );
-    setState(() {
-      _done += 1;
-      _revealed = true;
-    });
-    await widget.state.grade(word, grade);
+    setState(() => _revealed = true);
+    final next = await widget.state.grade(word, grade);
+    _remember(word, next);
     if (!mounted) return;
+    _next();
+  }
+
+  /// 记录本词最终到期日，用于小结展示
+  void _remember(Word word, ReviewState s) {
+    _doneWords[word.key] = word;
+    _due[word.key] = s.due;
+    if (!_order.contains(word.key)) _order.add(word.key);
+  }
+
+  void _startSpelling() {
+    final word = _current;
+    if (word == null) return;
+    _spellCtrl.clear();
+    setState(() {
+      _spellTarget = word;
+      _spellError = null;
+      _spellNext = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _spellFocus.requestFocus();
+    });
+  }
+
+  void _submitSpelling() {
+    final word = _spellTarget;
+    if (word == null) return;
+    final input = _spellCtrl.text.trim();
+    if (input.isEmpty) {
+      setState(() => _spellError = '先拼出单词再提交');
+      return;
+    }
+    if (input.toLowerCase() != word.w.trim().toLowerCase()) {
+      setState(() => _spellError = '拼写不对，看释义和发音再试一次');
+      return;
+    }
+    setState(() {
+      _spellTarget = null;
+      _spellError = null;
+      _spellCtrl.clear();
+    });
     _next();
   }
 
@@ -195,11 +264,11 @@ class _LearningPageState extends State<LearningPage> {
     if (_index >= _queue.length) {
       return _SummaryView(
         gradient: _gradient,
-        done: _done,
-        correct: _quizMode ? _correct : null,
-        streak: widget.state.streakDays,
-        remainingDue: widget.state.dueCount,
-        canRestart: widget.state.dueCount > 0,
+        rows: [
+          for (final key in _order)
+            if (_doneWords[key] != null && _due[key] != null)
+              _SummaryRow(word: _doneWords[key]!, due: _due[key]!),
+        ],
         onBack: () => Navigator.of(context).pop(),
         onRestart: () => setState(_start),
       );
@@ -242,7 +311,9 @@ class _LearningPageState extends State<LearningPage> {
                   IconButton(
                     icon: const Icon(Icons.arrow_back_ios_new, size: 18),
                     tooltip: '上一词',
-                    onPressed: _index > 0 && _history.containsKey(_index - 1)
+                    onPressed: _spellTarget == null &&
+                            _index > 0 &&
+                            _history.containsKey(_index - 1)
                         ? _reviewPrevious
                         : null,
                   ),
@@ -255,16 +326,19 @@ class _LearningPageState extends State<LearningPage> {
                       ),
                     ),
                   ),
-                  PopupMenuButton<String>(
-                    tooltip: '更多',
-                    icon: const Icon(Icons.more_horiz),
-                    onSelected: (v) {
-                      if (v == 'skip') _skip();
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'skip', child: Text('跳过')),
-                    ],
-                  ),
+                  if (_spellTarget == null)
+                    PopupMenuButton<String>(
+                      tooltip: '更多',
+                      icon: const Icon(Icons.more_horiz),
+                      onSelected: (v) {
+                        if (v == 'skip') _skip();
+                      },
+                      itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'skip', child: Text('跳过')),
+                      ],
+                    )
+                  else
+                    const SizedBox(width: 48),
                 ],
               ),
               Padding(
@@ -283,71 +357,83 @@ class _LearningPageState extends State<LearningPage> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(22, 28, 22, 24),
                   children: [
-                    if (_companions[word.key] != null) ...[
-                      _CompanionChip(name: _companions[word.key]!),
-                      const SizedBox(height: 10),
-                    ],
-                    Text(
-                      word.w,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 38,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.text,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    _SyllableLine(word: word.w),
-                    const SizedBox(height: 10),
-                    _PronunciationRow(word: word, audio: _audio),
-                    const SizedBox(height: 12),
-                    Text(
-                      '先回想词义再选择，想不起来看答案',
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.textMuted,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    if (noDefinition)
-                      _NoDefinitionCard(
-                        word: word,
-                        onSkip: _skip,
-                      )
-                    else if (!canGrade)
-                      _SelfGradeSection(
-                        word: word,
-                        revealed: _revealed,
-                        definedCount: _definedCount,
-                        onReveal: () => setState(() => _revealed = true),
-                        onRate: _rate,
+                    if (_spellTarget != null)
+                      _SpellingSection(
+                        word: _spellTarget!,
+                        controller: _spellCtrl,
+                        focusNode: _spellFocus,
+                        error: _spellError,
+                        audio: _audio,
+                        onSubmit: _submitSpelling,
                       )
                     else ...[
-                      for (var i = 0; i < _question!.options.length; i++)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _OptionCard(
-                            option: _question!.options[i],
-                            selected: _selected == i,
-                            revealed: _revealed,
-                            onTap: () => _choose(i),
-                          ),
+                      if (_companions[word.key] != null) ...[
+                        _CompanionChip(name: _companions[word.key]!),
+                        const SizedBox(height: 10),
+                      ],
+                      Text(
+                        word.w,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 38,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.text,
+                          letterSpacing: 0.5,
                         ),
-                      if (_revealed) ...[
-                        const SizedBox(height: 8),
-                        _AnswerPanel(word: word),
-                        const SizedBox(height: 16),
-                        FilledButton(
-                          onPressed: _next,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 15),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(18),
+                      ),
+                      _SyllableLine(word: word.w),
+                      const SizedBox(height: 10),
+                      _PronunciationRow(word: word, audio: _audio),
+                      const SizedBox(height: 12),
+                      Text(
+                        '先回想词义再选择，想不起来看答案',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      if (noDefinition)
+                        _NoDefinitionCard(
+                          word: word,
+                          onSkip: _skip,
+                        )
+                      else if (!canGrade)
+                        _SelfGradeSection(
+                          word: word,
+                          revealed: _revealed,
+                          definedCount: _definedCount,
+                          onReveal: () => setState(() => _revealed = true),
+                          onRate: _rate,
+                        )
+                      else ...[
+                        for (var i = 0; i < _question!.options.length; i++)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _OptionCard(
+                              option: _question!.options[i],
+                              selected: _selected == i,
+                              revealed: _revealed,
+                              onTap: () => _choose(i),
                             ),
                           ),
-                          child: const Text('下一词'),
-                        ),
+                        if (_revealed) ...[
+                          const SizedBox(height: 8),
+                          _AnswerPanel(word: word),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            onPressed: _spellNext ? _startSpelling : _next,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding:
+                                  const EdgeInsets.symmetric(vertical: 15),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                            ),
+                            child: Text(_spellNext ? '去拼写' : '下一词'),
+                          ),
+                        ],
                       ],
                     ],
                   ],
@@ -639,26 +725,34 @@ class _NoDefinitionCard extends StatelessWidget {
   }
 }
 
-class _SummaryView extends StatelessWidget {
+/// 小结行：完成后的单词与下次复习时间
+class _SummaryRow {
+  final Word word;
+  final DateTime due;
+
+  const _SummaryRow({required this.word, required this.due});
+}
+
+/// 一轮完成页：列出本轮单词与下次复习间隔，轻点可看释义
+class _SummaryView extends StatefulWidget {
   final List<Color> gradient;
-  final int done;
-  final int? correct;
-  final int streak;
-  final int remainingDue;
-  final bool canRestart;
+  final List<_SummaryRow> rows;
   final VoidCallback onBack;
   final VoidCallback onRestart;
 
   const _SummaryView({
     required this.gradient,
-    required this.done,
-    required this.correct,
-    required this.streak,
-    required this.remainingDue,
-    required this.canRestart,
+    required this.rows,
     required this.onBack,
     required this.onRestart,
   });
+
+  @override
+  State<_SummaryView> createState() => _SummaryViewState();
+}
+
+class _SummaryViewState extends State<_SummaryView> {
+  final Set<String> _expanded = {};
 
   @override
   Widget build(BuildContext context) {
@@ -666,70 +760,349 @@ class _SummaryView extends StatelessWidget {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: AppBackground(
-        colors: gradient,
+        colors: widget.gradient,
         child: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+          child: Column(
+            children: [
+              Row(
                 children: [
-                  const Icon(
-                    Icons.emoji_events_outlined,
-                    size: 56,
-                    color: AppColors.accent,
+                  IconButton(
+                    icon: const Icon(Icons.arrow_back_ios_new, size: 18),
+                    tooltip: '返回',
+                    onPressed: widget.onBack,
                   ),
-                  const SizedBox(height: 16),
-                  Text('本次学习 $done 个词', style: theme.textTheme.titleLarge),
-                  if (correct != null) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      done == 0
-                          ? '正确率 —'
-                          : '正确率 ${(correct! / done * 100).round()}%',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
+                  Expanded(
+                    child: Text(
+                      '小结',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleLarge,
                     ),
-                  ],
-                  const SizedBox(height: 6),
-                  Text(
-                    '连续 $streak 天',
+                  ),
+                  const SizedBox(width: 48),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 6, 22, 10),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 11),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(
+                    '轻点单词可查看释义',
+                    textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: AppColors.textSecondary,
                     ),
                   ),
-                  if (remainingDue > 0) ...[
-                    const SizedBox(height: 6),
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 22),
+                  itemCount: widget.rows.length,
+                  itemBuilder: (context, i) {
+                    final row = widget.rows[i];
+                    final key = row.word.key;
+                    final open = _expanded.contains(key);
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () => setState(() {
+                        if (!_expanded.remove(key)) _expanded.add(key);
+                      }),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    row.word.w,
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.text,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  dueLabel(row.due),
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    color: AppColors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (open) ...[
+                              const SizedBox(height: 6),
+                              if (row.word.defs.isEmpty)
+                                Text(
+                                  '还没有释义',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                )
+                              else
+                                for (final d in row.word.defs)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 3),
+                                    child: Text(
+                                      d.pos.isEmpty
+                                          ? d.cn
+                                          : '${d.pos}. ${d.cn}',
+                                      style:
+                                          theme.textTheme.bodySmall?.copyWith(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(22, 16, 22, 18),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                ),
+                child: Column(
+                  children: [
                     Text(
-                      '还有 $remainingDue 个到期词，可继续下一组',
-                      style: theme.textTheme.bodySmall?.copyWith(
+                      '本组 ${widget.rows.length} 个单词辨识完成',
+                      style: theme.textTheme.bodyMedium?.copyWith(
                         color: AppColors.textSecondary,
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 28),
-                  FilledButton(
-                    onPressed: onBack,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 28,
-                        vertical: 14,
-                      ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _SummaryAction(
+                            label: '再学一组',
+                            onTap: widget.onRestart,
+                          ),
+                        ),
+                        Expanded(
+                          child: _SummaryAction(
+                            label: '休息一下',
+                            onTap: widget.onBack,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Text('返回今日'),
-                  ),
-                  if (canRestart) ...[
-                    const SizedBox(height: 8),
-                    TextButton(onPressed: onRestart, child: const Text('再来一组')),
                   ],
-                ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 小结底部操作：文字 + 短下划线
+class _SummaryAction extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _SummaryAction({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: AppColors.text,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Container(
+              width: 20,
+              height: 3,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 答错后的巩固：看释义 + 听发音，把单词拼出来才算完成
+class _SpellingSection extends StatelessWidget {
+  final Word word;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String? error;
+  final AudioService audio;
+  final VoidCallback onSubmit;
+
+  const _SpellingSection({
+    required this.word,
+    required this.controller,
+    required this.focusNode,
+    required this.error,
+    required this.audio,
+    required this.onSubmit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final phonetic = word.uk.isNotEmpty ? word.uk : word.us;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              '答错过 · 拼写巩固',
+              style: TextStyle(
+                color: AppColors.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
         ),
-      ),
+        const SizedBox(height: 16),
+        Text(
+          '根据释义和发音拼出这个单词',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: AppColors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: 16),
+        GlassCard(
+          padding: const EdgeInsets.all(18),
+          radius: 18,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text('释义', style: theme.textTheme.labelLarge),
+                  ),
+                  IconButton(
+                    tooltip: '发音',
+                    icon: const Icon(
+                      Icons.volume_up_rounded,
+                      color: AppColors.primary,
+                    ),
+                    onPressed: () => audio.play(word.w),
+                  ),
+                ],
+              ),
+              for (final d in word.defs)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (d.pos.isNotEmpty) ...[
+                        Text(
+                          '${d.pos}. ',
+                          style: const TextStyle(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                      Expanded(child: Text(d.cn)),
+                    ],
+                  ),
+                ),
+              if (phonetic.isNotEmpty)
+                Text(
+                  '/$phonetic/',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppColors.textMuted,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 18),
+        TextField(
+          controller: controller,
+          focusNode: focusNode,
+          autocorrect: false,
+          enableSuggestions: false,
+          textInputAction: TextInputAction.done,
+          textCapitalization: TextCapitalization.none,
+          onSubmitted: (_) => onSubmit(),
+          decoration: InputDecoration(
+            hintText: '输入单词',
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.65),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(16),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        if (error != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            error!,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: AppColors.danger, fontSize: 13),
+          ),
+        ],
+        const SizedBox(height: 16),
+        FilledButton(
+          onPressed: onSubmit,
+          style: FilledButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            padding: const EdgeInsets.symmetric(vertical: 15),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+          child: const Text('提交'),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          '拼对后本词才会结束',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: AppColors.textMuted,
+          ),
+        ),
+      ],
     );
   }
 }

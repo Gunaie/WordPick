@@ -52,3 +52,6 @@ app.*.map.json
 # 本地构建产物（APK 等，不入库）
 /dist/
 *.apk
+
+# 编辑器内部分享临时包
+.trae-html-share-packages/

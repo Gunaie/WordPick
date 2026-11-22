@@ -103,7 +103,7 @@ future
 |---|---|---|
 | 依赖解析 | `dart pub get` | **不要用** `flutter pub get`（插件符号链接会失败，ISSUE-027） |
 | 静态检查 | `flutter analyze --no-pub` | 应为 `No issues found` |
-| 单元测试 | `flutter test --no-pub` | 当前 70 项全过 |
+| 单元测试 | `flutter test --no-pub` | 当前 80 项全过 |
 | 本机预览 | 双击 `scripts\preview_web.cmd` | Edge + 端口 8091，构建目录在 `%TEMP%` |
 | 打包 APK | 双击 `scripts\build_apk.cmd` | 产物 `E:\APK\app-release.apk`；**仅用户明确要求时才打包** |
 
@@ -146,7 +146,7 @@ scope: words | srs | spelling | sync | store | ui | docs | build
 
 | 类型 | 范围 | 位置 |
 |---|---|---|
-| 纯逻辑单测 | SM-2、拼写提示、自建词解析、易混组、导出 / 恢复、拍照识别候选 | `test/domain/`、`test/data/` |
+| 纯逻辑单测 | SM-2、拼写提示、自建词解析、易混组、导出 / 恢复 | `test/domain/`、`test/data/` |
 | Widget 冒烟 | 页面能构建、关键文案存在 | 当前未覆盖；新增时放 `test/ui/` |
 | 手工验证 | 发音、同步、真机交互 | 电脑端预览或真机 |
 

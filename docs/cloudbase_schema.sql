@@ -50,9 +50,10 @@ create table if not exists note (
   deleted     boolean     not null default false
 );
 
--- 已建过旧表的库执行下面两句补列（v0.10 起笔记支持标题与标签）
--- alter table note add column if not exists title text not null default '';
--- alter table note add column if not exists tags text[] not null default '{}';
+-- 已建过旧表的库：下面 2 句必须执行（幂等，可重复运行）。
+-- v0.10 起笔记支持标题与标签；缺列会导致 note 同步报 42703，见 ISSUE-033。
+alter table note add column if not exists title text not null default '';
+alter table note add column if not exists tags text[] not null default '{}';
 
 create index if not exists note_user_idx
   on note (user_id, created_at desc);

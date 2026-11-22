@@ -43,33 +43,32 @@ class AppSettings {
     int? reviewWordsPerGroup,
     int? spellingWords,
     bool? useFsrs,
-  }) =>
-      AppSettings(
-        useUkAccent: useUkAccent ?? this.useUkAccent,
-        newWordsPerGroup: newWordsPerGroup ?? this.newWordsPerGroup,
-        reviewWordsPerGroup: reviewWordsPerGroup ?? this.reviewWordsPerGroup,
-        spellingWords: spellingWords ?? this.spellingWords,
-        useFsrs: useFsrs ?? this.useFsrs,
-      );
+  }) => AppSettings(
+    useUkAccent: useUkAccent ?? this.useUkAccent,
+    newWordsPerGroup: newWordsPerGroup ?? this.newWordsPerGroup,
+    reviewWordsPerGroup: reviewWordsPerGroup ?? this.reviewWordsPerGroup,
+    spellingWords: spellingWords ?? this.spellingWords,
+    useFsrs: useFsrs ?? this.useFsrs,
+  );
 
   factory AppSettings.fromJson(Map<String, dynamic> j) => AppSettings(
-        useUkAccent: (j['accent'] as String?)?.toLowerCase() != 'us',
-        newWordsPerGroup:
-            _clamp((j['new_words_per_group'] as num?)?.toInt() ?? 10),
-        reviewWordsPerGroup:
-            _clamp((j['review_words_per_group'] as num?)?.toInt() ?? 20,
-                max: maxReviewCount),
-        spellingWords: _clamp((j['spelling_words'] as num?)?.toInt() ?? 10),
-        useFsrs: (j['use_fsrs'] as bool?) ?? true,
-      );
+    useUkAccent: (j['accent'] as String?)?.toLowerCase() != 'us',
+    newWordsPerGroup: _clamp((j['new_words_per_group'] as num?)?.toInt() ?? 10),
+    reviewWordsPerGroup: _clamp(
+      (j['review_words_per_group'] as num?)?.toInt() ?? 20,
+      max: maxReviewCount,
+    ),
+    spellingWords: _clamp((j['spelling_words'] as num?)?.toInt() ?? 10),
+    useFsrs: (j['use_fsrs'] as bool?) ?? true,
+  );
 
   Map<String, dynamic> toJson() => {
-        'accent': useUkAccent ? 'uk' : 'us',
-        'new_words_per_group': newWordsPerGroup,
-        'review_words_per_group': reviewWordsPerGroup,
-        'spelling_words': spellingWords,
-        'use_fsrs': useFsrs,
-      };
+    'accent': useUkAccent ? 'uk' : 'us',
+    'new_words_per_group': newWordsPerGroup,
+    'review_words_per_group': reviewWordsPerGroup,
+    'spelling_words': spellingWords,
+    'use_fsrs': useFsrs,
+  };
 
   static int _clamp(int v, {int max = maxCount}) => v.clamp(minCount, max);
 }

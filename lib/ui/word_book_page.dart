@@ -4,10 +4,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../app_state.dart';
 import '../domain/custom_word_parser.dart';
-import '../domain/ocr_candidates.dart';
 import '../domain/spelling_hints.dart';
 import '../domain/word.dart';
-import '../services/ocr_service.dart';
 import 'theme.dart';
 
 /// 自建单词本详情：词条的增删改查 + 粘贴批量导入
@@ -126,7 +124,9 @@ class _WordBookPageState extends State<WordBookPage> {
             const Text(
               '每行一个词，释义可选；用分号分隔多条释义，词性写在释义前：\n'
               'serendipity [ˌserənˈdɪpəti] n. 意外发现\n'
-              'abandon v. 放弃; n. 放任',
+              'abandon v. 放弃; n. 放任\n'
+              '也可直接粘贴 JSON 数组：\n'
+              '[{"word":"whip","defs":["n. 鞭子"]}]',
               style: TextStyle(fontSize: 12),
             ),
             const SizedBox(height: 10),
@@ -160,109 +160,6 @@ class _WordBookPageState extends State<WordBookPage> {
     final r = await widget.state.importWordsToBook(widget.bookId, text);
     if (!mounted) return;
     _toast(_importSummary(r));
-  }
-
-  /// 拍照识别手写：取图 → 端上离线识别 → 候选校对 → 复用批量导入
-  Future<void> _scanHandwriting() async {
-    if (!ocrSupported) {
-      _toast('拍照识别仅支持 Android / iOS');
-      return;
-    }
-
-    final source = await showModalBottomSheet<OcrSource>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('拍照'),
-              onTap: () => Navigator.pop(ctx, OcrSource.camera),
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('从相册选择'),
-              onTap: () => Navigator.pop(ctx, OcrSource.gallery),
-            ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 4, 16, 12),
-              child: Text(
-                '离线识别手写，中文准确率有限；识别后可逐条校对再导入。',
-                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (source == null || !mounted) return;
-
-    String? path;
-    try {
-      path = await pickImageForOcr(source);
-    } catch (e) {
-      if (mounted) _toast('打开相机/相册失败：$e');
-      return;
-    }
-    if (path == null || !mounted) return;
-
-    _showBusy('正在离线识别…');
-    final String text;
-    try {
-      text = await recognizeOcrText(path);
-    } catch (e) {
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
-      _toast('识别失败：$e');
-      return;
-    }
-    if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pop();
-
-    final result = parseOcrText(text);
-    if (result.isEmpty) {
-      _toast('没有识别到文字，请换个角度重拍');
-      return;
-    }
-
-    final confirmed = await Navigator.of(context).push<List<Word>>(
-      MaterialPageRoute(
-        builder: (_) => _OcrReviewPage(state: widget.state, result: result),
-      ),
-    );
-    if (confirmed == null || confirmed.isEmpty || !mounted) return;
-
-    final lines = [
-      for (final w in confirmed)
-        if (_defsText(w).isEmpty) w.w else '${w.w} ${_defsText(w)}',
-    ];
-    final r = await widget.state.importWordsToBook(
-      widget.bookId,
-      lines.join('\n'),
-    );
-    if (!mounted) return;
-    _toast(_importSummary(r));
-  }
-
-  void _showBusy(String text) {
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        content: Row(
-          children: [
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Text(text)),
-          ],
-        ),
-      ),
-    );
   }
 
   Future<void> _rename() async {
@@ -345,11 +242,13 @@ class _WordBookPageState extends State<WordBookPage> {
         final words = q.isEmpty
             ? book.words
             : book.words
-                .where((e) =>
-                    e.key.contains(q) ||
-                    e.word.uk.toLowerCase().contains(q) ||
-                    _defsText(e.word).toLowerCase().contains(q))
-                .toList();
+                  .where(
+                    (e) =>
+                        e.key.contains(q) ||
+                        e.word.uk.toLowerCase().contains(q) ||
+                        _defsText(e.word).toLowerCase().contains(q),
+                  )
+                  .toList();
         final learned = book.words
             .where((e) => widget.state.states.containsKey(e.key))
             .length;
@@ -392,7 +291,9 @@ class _WordBookPageState extends State<WordBookPage> {
                               foregroundColor: AppColors.primary,
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               side: BorderSide(
-                                color: AppColors.primary.withValues(alpha: 0.35),
+                                color: AppColors.primary.withValues(
+                                  alpha: 0.35,
+                                ),
                               ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(16),
@@ -403,31 +304,6 @@ class _WordBookPageState extends State<WordBookPage> {
                       ],
                     ),
                   ),
-                  if (ocrSupported)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(22, 10, 22, 0),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: _scanHandwriting,
-                          icon: const Icon(
-                            Icons.document_scanner_outlined,
-                            size: 18,
-                          ),
-                          label: const Text('拍照识别手写'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppColors.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 11),
-                            side: BorderSide(
-                              color: AppColors.primary.withValues(alpha: 0.35),
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(22, 14, 22, 0),
                     child: TextField(
@@ -455,8 +331,9 @@ class _WordBookPageState extends State<WordBookPage> {
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.62),
                         isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 12),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(16),
                           borderSide: BorderSide.none,
@@ -511,10 +388,12 @@ class _WordBookPageState extends State<WordBookPage> {
                                                 child: Text(
                                                   e.word.w,
                                                   style: theme
-                                                      .textTheme.titleMedium
+                                                      .textTheme
+                                                      .titleMedium
                                                       ?.copyWith(
-                                                    fontWeight: FontWeight.w700,
-                                                  ),
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                      ),
                                                 ),
                                               ),
                                               if (e.word.uk.isNotEmpty) ...[
@@ -523,11 +402,12 @@ class _WordBookPageState extends State<WordBookPage> {
                                                   child: Text(
                                                     _phonetic(e.word.uk),
                                                     style: theme
-                                                        .textTheme.bodySmall
+                                                        .textTheme
+                                                        .bodySmall
                                                         ?.copyWith(
-                                                      color:
-                                                          AppColors.textMuted,
-                                                    ),
+                                                          color: AppColors
+                                                              .textMuted,
+                                                        ),
                                                   ),
                                                 ),
                                               ],
@@ -540,9 +420,9 @@ class _WordBookPageState extends State<WordBookPage> {
                                               syllables.join('·'),
                                               style: theme.textTheme.bodySmall
                                                   ?.copyWith(
-                                                color: AppColors.textMuted,
-                                                letterSpacing: 0.8,
-                                              ),
+                                                    color: AppColors.textMuted,
+                                                    letterSpacing: 0.8,
+                                                  ),
                                             ),
                                           ],
                                           if (_defsText(e.word).isNotEmpty) ...[
@@ -553,8 +433,9 @@ class _WordBookPageState extends State<WordBookPage> {
                                               overflow: TextOverflow.ellipsis,
                                               style: theme.textTheme.bodyMedium
                                                   ?.copyWith(
-                                                color: AppColors.textSecondary,
-                                              ),
+                                                    color:
+                                                        AppColors.textSecondary,
+                                                  ),
                                             ),
                                           ],
                                           const SizedBox(height: 4),
@@ -562,8 +443,8 @@ class _WordBookPageState extends State<WordBookPage> {
                                             '添加于 ${_fmtTime(e.addedAt)} · 添加 ${e.addCount} 次',
                                             style: theme.textTheme.labelSmall
                                                 ?.copyWith(
-                                              color: AppColors.textMuted,
-                                            ),
+                                                  color: AppColors.textMuted,
+                                                ),
                                           ),
                                         ],
                                       ),
@@ -691,10 +572,7 @@ class _WordBookPageState extends State<WordBookPage> {
             ),
             const SizedBox(height: 16),
             if (searching)
-              TextButton(
-                onPressed: _clearSearch,
-                child: const Text('清除搜索'),
-              )
+              TextButton(onPressed: _clearSearch, child: const Text('清除搜索'))
             else
               FilledButton.icon(
                 onPressed: _addWord,
@@ -717,13 +595,10 @@ class _SenseDraft {
   final TextEditingController cn;
   final TextEditingController en;
 
-  _SenseDraft({
-    String posText = '',
-    String cnText = '',
-    String enText = '',
-  })  : pos = TextEditingController(text: posText),
-        cn = TextEditingController(text: cnText),
-        en = TextEditingController(text: enText);
+  _SenseDraft({String posText = '', String cnText = '', String enText = ''})
+    : pos = TextEditingController(text: posText),
+      cn = TextEditingController(text: cnText),
+      en = TextEditingController(text: enText);
 
   factory _SenseDraft.from(WordSense s) =>
       _SenseDraft(posText: s.pos, cnText: s.cn, enText: s.en);
@@ -946,14 +821,14 @@ class _WordFormDialogState extends State<_WordFormDialog> {
   }
 
   List<WordSense> _collectSenses() => [
-        for (final s in _senses)
-          if (s.cn.text.trim().isNotEmpty || s.en.text.trim().isNotEmpty)
-            WordSense(
-              pos: s.pos.text.trim(),
-              cn: s.cn.text.trim(),
-              en: s.en.text.trim(),
-            ),
-      ];
+    for (final s in _senses)
+      if (s.cn.text.trim().isNotEmpty || s.en.text.trim().isNotEmpty)
+        WordSense(
+          pos: s.pos.text.trim(),
+          cn: s.cn.text.trim(),
+          en: s.en.text.trim(),
+        ),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -1007,8 +882,7 @@ class _WordFormDialogState extends State<_WordFormDialog> {
                   ),
                 ],
               ),
-              for (var i = 0; i < _senses.length; i++)
-                _senseRow(i, theme),
+              for (var i = 0; i < _senses.length; i++) _senseRow(i, theme),
             ],
           ),
         ),
@@ -1019,10 +893,11 @@ class _WordFormDialogState extends State<_WordFormDialog> {
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(
-            context,
-            (_word.text, _phonetic.text, _collectSenses()),
-          ),
+          onPressed: () => Navigator.pop(context, (
+            _word.text,
+            _phonetic.text,
+            _collectSenses(),
+          )),
           child: const Text('保存'),
         ),
       ],
@@ -1063,230 +938,4 @@ String _fmtTime(DateTime? t) {
   if (t == null) return '时间未知';
   String two(int v) => v.toString().padLeft(2, '0');
   return '${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
-}
-
-/// 拍照识别候选校对：逐条编辑 / 删除，确认后返回要导入的词
-class _OcrReviewPage extends StatefulWidget {
-  final AppState state;
-  final OcrScanResult result;
-
-  const _OcrReviewPage({required this.state, required this.result});
-
-  @override
-  State<_OcrReviewPage> createState() => _OcrReviewPageState();
-}
-
-class _OcrReviewPageState extends State<_OcrReviewPage> {
-  late final List<OcrCandidate> _items;
-
-  @override
-  void initState() {
-    super.initState();
-    _items = [...widget.result.candidates];
-  }
-
-  Future<void> _edit(int index) async {
-    final candidate = _items[index];
-    final input = await showDialog<(String, String, List<WordSense>)>(
-      context: context,
-      builder: (_) => _WordFormDialog(
-        state: widget.state,
-        title: '校对词条',
-        initialWord: candidate.word.w,
-        initialPhonetic: candidate.word.uk,
-        initialSenses: candidate.word.defs,
-      ),
-    );
-    if (input == null || !mounted) return;
-    setState(() {
-      _items[index] = candidate.copyWith(
-        word: Word(
-          w: input.$1.trim(),
-          uk: input.$2.trim(),
-          us: candidate.word.us,
-          defs: input.$3,
-          tags: candidate.word.tags,
-        ),
-      );
-    });
-  }
-
-  List<Word> _collect() => [
-        for (final c in _items)
-          if (c.word.w.trim().isNotEmpty) c.word,
-      ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final skipped = widget.result.unparsed.length;
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AppBackground(
-        colors: kGradients[2],
-        child: SafeArea(
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(6, 6, 16, 4),
-                child: Row(
-                  children: [
-                    IconButton(
-                      tooltip: '返回',
-                      icon: const Icon(Icons.arrow_back),
-                      color: AppColors.text,
-                      onPressed: () => Navigator.of(context).pop(),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '识别校对',
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            skipped == 0
-                                ? '识别到 ${_items.length} 条，点词条可修改'
-                                : '识别到 ${_items.length} 条，另有 $skipped 行无法识别',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: _items.isEmpty
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(32, 8, 32, 48),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.text_fields,
-                                size: 40,
-                                color: AppColors.textMuted,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                '没有可导入的候选词',
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                '换个角度或光线重拍试试。',
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: AppColors.textSecondary,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(22, 6, 22, 16),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (context, i) {
-                          final c = _items[i];
-                          return GlassCard(
-                            radius: 18,
-                            padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: () => _edit(i),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          c.word.w,
-                                          style: theme.textTheme.titleMedium
-                                              ?.copyWith(
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        if (_defsText(c.word).isNotEmpty) ...[
-                                          const SizedBox(height: 2),
-                                          Text(
-                                            _defsText(c.word, maxSenses: 2),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                              color: AppColors.textSecondary,
-                                            ),
-                                          ),
-                                        ],
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '原文：${c.raw}',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                            color: AppColors.textMuted,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: '删除',
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    size: 20,
-                                    color: AppColors.textMuted,
-                                  ),
-                                  onPressed: () =>
-                                      setState(() => _items.removeAt(i)),
-                                ),
-                              ],
-                            ),
-                          );
-                        },
-                      ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(22, 4, 22, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _items.isEmpty
-                        ? null
-                        : () => Navigator.pop(context, _collect()),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: Text('导入 ${_items.length} 个词'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
