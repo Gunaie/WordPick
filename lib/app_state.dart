@@ -66,7 +66,7 @@ class AppState extends ChangeNotifier {
   String? _error;
 
   // ── 云同步状态 ──
-  final CloudSync? _sync = SyncConfig.enabled ? CloudSync() : null;
+  final CloudSync? _sync = SyncConfig.active ? CloudSync() : null;
   bool _syncing = false;
   String? _syncError;
   DateTime? _lastSyncedAt;

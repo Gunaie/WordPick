@@ -53,5 +53,12 @@ app.*.map.json
 /dist/
 *.apk
 
+# 签名与密钥（只留本地，绝不入库）
+android/key.properties
+**/*.jks
+**/*.keystore
+*.pem
+.env
+
 # 编辑器内部分享临时包
 .trae-html-share-packages/

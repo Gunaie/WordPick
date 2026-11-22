@@ -339,7 +339,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             dense: true,
                             title: const Text('状态'),
                             subtitle: Text(
-                              '启动与回到前台时自动同步（1 分钟内不重复）',
+                              state.syncEnabled
+                                  ? '启动与回到前台时自动同步（1 分钟内不重复）'
+                                  : '当前构建未启用云同步，数据只保存在本机',
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: AppColors.textMuted,
                               ),
@@ -353,7 +355,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             dense: true,
                             title: const Text('环境'),
                             trailing: Text(
-                              SyncConfig.envId,
+                              SyncConfig.envId.isEmpty ? '未配置' : SyncConfig.envId,
                               style: theme.textTheme.bodySmall,
                             ),
                           ),

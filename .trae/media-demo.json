@@ -1,0 +1,61 @@
+{
+  "serve": { "dir": "build/web", "port": 8123 },
+  "viewport": { "width": 390, "height": 800, "dpr": 1.5 },
+  "locale": "zh-CN",
+  "storage": { "clearPrefix": "es_", "module": ".trae/media-seed.js" },
+  "shots": {
+    "outDir": "docs/media",
+    "steps": [
+      { "type": "shot", "name": "home" },
+      { "type": "tap", "x": 195, "y": 758 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "books" },
+      { "type": "tap", "x": 195, "y": 120 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "book-detail" },
+      { "type": "tap", "x": 22, "y": 28 }, { "type": "wait", "ms": 700 },
+      { "type": "tap", "x": 310, "y": 758 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "profile" },
+      { "type": "tap", "x": 195, "y": 120 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "notes" },
+      { "type": "tap", "x": 22, "y": 28 }, { "type": "wait", "ms": 700 },
+      { "type": "tap", "x": 195, "y": 376 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "stats" },
+      { "type": "tap", "x": 22, "y": 28 }, { "type": "wait", "ms": 700 },
+      { "type": "tap", "x": 80, "y": 758 }, { "type": "wait", "ms": 700 },
+      { "type": "tap", "x": 195, "y": 356 }, { "type": "wait", "ms": 1600 },
+      { "type": "shot", "name": "learning" }
+    ]
+  },
+  "gif": {
+    "out": "docs/media/demo.gif",
+    "fps": 12,
+    "width": 390,
+    "quality": 74,
+    "colors": 128,
+    "holdMs": 1500,
+    "steps": [
+      { "type": "wait", "ms": 1500 },
+      { "type": "tap", "x": 195, "y": 356 }, { "type": "wait", "ms": 1700 },
+      { "type": "tap", "x": 195, "y": 290 }, { "type": "wait", "ms": 2200 },
+      { "type": "tap", "x": 195, "y": 650 }, { "type": "wait", "ms": 1500 },
+      { "type": "tap", "x": 32, "y": 29 }, { "type": "wait", "ms": 1000 },
+      { "type": "tap", "x": 195, "y": 758 }, { "type": "wait", "ms": 1300 },
+      { "type": "tap", "x": 195, "y": 120 }, { "type": "wait", "ms": 1200 },
+      { "type": "scroll", "dy": 380 }, { "type": "wait", "ms": 1400 },
+      { "type": "tap", "x": 22, "y": 28 }, { "type": "wait", "ms": 700 },
+      { "type": "tap", "x": 310, "y": 758 }, { "type": "wait", "ms": 1200 },
+      { "type": "tap", "x": 195, "y": 376 }, { "type": "wait", "ms": 3400 }
+    ]
+  },
+  "probe": {
+    "steps": [
+      { "type": "shot", "name": "probe-home" },
+      { "type": "tap", "x": 195, "y": 758 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "probe-books" },
+      { "type": "tap", "x": 310, "y": 758 }, { "type": "wait", "ms": 900 },
+      { "type": "shot", "name": "probe-profile" },
+      { "type": "tap", "x": 80, "y": 758 }, { "type": "wait", "ms": 700 },
+      { "type": "tap", "x": 195, "y": 356 }, { "type": "wait", "ms": 1400 },
+      { "type": "shot", "name": "probe-learning" }
+    ]
+  }
+}

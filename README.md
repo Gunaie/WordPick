@@ -10,6 +10,8 @@
 
 <p align="center"><sub>真实界面录屏：签到与待复习 → 四选一即时反馈 → 词书管理 → 学习统计</sub></p>
 
+<p align="center"><a href="docs/media/demo.gif">▶ 若动图未加载，点此直接打开完整演示（约 19 秒 / 1.3 MB）</a></p>
+
 ---
 
 ## 核心功能
@@ -103,14 +105,15 @@
 
 ## 快速开始
 
-环境：Flutter 3.50（本机 `E:\flutter_sdk\flutter`），JDK 17，Android SDK（构建 APK 时需要）。
+环境：Flutter 3.50，JDK 17，Android SDK（构建 APK 时需要）。
 
 ```bash
 dart pub get                      # 依赖解析（不要用 flutter pub get）
-scripts\preview_web.cmd           # 本地预览，Edge 打开 http://localhost:8091
+scripts\preview_web.cmd           # 本地预览，浏览器打开 http://localhost:8091
 flutter analyze --no-pub          # 静态检查
 flutter test --no-pub             # 单元测试
-scripts\build_apk.cmd             # 打包 Release APK，产物 E:\APK\app-release.apk
+flutter build web --release       # Web 产物 build/web
+scripts\build_apk.cmd             # 打包 Release APK（混淆 + 符号剥离）
 ```
 
 > Web 预览与 APK 构建脚本会把中间产物写到 `%TEMP%`，避免编辑器的文件监视器干扰 `build/` 下的增量缓存。
@@ -125,6 +128,41 @@ scripts\build_apk.cmd             # 打包 Release APK，产物 E:\APK\app-relea
 | Windows | 工程保留 | 本机缺 VS C++ 工作负载与开发者模式，暂无法构建 |
 
 > 「拾词 · WordPick」为作品名，安装名与应用内顶部标识统一为「拾词」；包名 `english_study` 保持不变（影响已发布包的升级，不建议改动）。
+
+## 更新日志
+
+### v0.22.0
+- 应用名统一为「拾词」（Android / iOS / Web）
+- 移除拍照识别（ML Kit OCR），安装包更小，权限只保留联网
+- 自建词书导入：多格式兼容、多释义去重、失败原因提示
+- 四选一在多释义时随机选择考点；复习默认 FSRS-6，可无损回退 SM-2
+- README 截图与演示 GIF 按当前版本重新采集
+
+## 隐私与安全
+
+**默认不往云端存数据**
+- 无账号、无埋点、无第三方统计 SDK；词书、进度、笔记默认只写本机（原生 SQLite / Web localStorage）。
+- 云同步默认关闭，仓库里也不内置云端地址与密钥。要启用需用自己的环境重新构建：
+
+```bash
+flutter build apk --release \
+  --dart-define=SYNC_ENABLED=true \
+  --dart-define=SYNC_ENV_ID=<环境ID> \
+  --dart-define=SYNC_API_KEY=<Publishable Key> \
+  --dart-define=SYNC_USER_ID=<自己的标识>
+```
+
+**仍然会出网的两处**
+- 发音：向有道 `dictvoice` 请求音频，会把**被查询的单词**发给有道；失败时回退设备本地 TTS。
+- 开启云同步后：学习数据 JSON 上传到你自己配置的云端。
+
+**密钥与签名**
+- 客户端只放 Publishable（anon）Key；`service_role` 等私钥必须留在服务端。
+- 正式包由 `android/key.properties` 指定的 keystore 签名（该文件与 keystore 均不入库）。更换签名后，手机上已安装的旧版本需要卸载重装。
+
+**边界说明**
+- APK 一定能被反编译，内置词库与客户端逻辑无法真正隐藏。发布版开启 R8 + Dart 混淆 + 符号剥离，只是提高阅读成本，不当作安全边界。
+- 本机数据未加密：能解锁设备或导出应用数据的人可以读到学习记录；更高要求可用系统应用锁，或自行接入 SQLCipher。
 
 ## 目录结构
 

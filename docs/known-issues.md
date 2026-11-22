@@ -268,7 +268,7 @@
 |---|---|
 | 现象 | 在 Trae 后台/非交互 shell 直接调用 `flutter.bat`，无输出、CPU 100% 空转，进程堆积，`:acquire_lock` 无限重试 |
 | 根因 | `update_engine_version.ps1` 内部一次 git 调用在此 shell 上下文返回非零，泄漏 `$LASTEXITCODE` → `:do_ensure_engine_version` 返回非零 → `EXIT 1` → `\|\| GOTO acquire_lock` 死循环 |
-| 规避（agent 用） | 用 detached 干净控制台启动，重定向输出后前台等待；需 `dangerouslyDisableSandbox: true`（SDK 目录与 Pub 缓存 `C:\Users\gunaie\AppData\Local\Pub\Cache` 在沙箱可写白名单外） |
+| 规避（agent 用） | 用 detached 干净控制台启动，重定向输出后前台等待；需 `dangerouslyDisableSandbox: true`（SDK 目录与 Pub 缓存 `%LOCALAPPDATA%\Pub\Cache` 在沙箱可写白名单外） |
 | 规避示例 | `Start-Process -FilePath 'E:\flutter_sdk\flutter\bin\flutter.bat' -ArgumentList '<cmd>','--no-pub' -PassThru -WindowStyle Hidden -RedirectStandardOutput out.txt -RedirectStandardError err.txt` 然后 `$p.WaitForExit(600000)` |
 | 重要 | 这只是 **agent shell 的限制**——用户自己的 PowerShell 窗口里 `flutter` 正常工作。`dart pub get` / `dart run` 可直接调用，无需此规避 |
 | 状态 | 🟡 已知，按规避方案执行 |
@@ -334,7 +334,7 @@
 | 项 | 内容 |
 |---|---|
 | 现象 | `:jni:configureCMakeRelWithDebInfo` 失败：`hash_key.txt` 访问被拒绝；此前 `flutter pub get` 也报 `active_roots` 拒绝访问 |
-| 根因 | `jni` 插件把 CMake 中间产物（`.cxx/`）写在自己的包目录内，而包目录位于 `C:\Users\gunaie\AppData\Local\Pub\Cache`，该路径不可写 |
+| 根因 | `jni` 插件把 CMake 中间产物（`.cxx/`）写在自己的包目录内，而包目录位于 `%LOCALAPPDATA%\Pub\Cache`，该路径不可写 |
 | 规避 | 脚本内设 `PUB_CACHE=%LOCALAPPDATA%\Temp\pub-cache`，让插件在可写位置生成中间产物 |
 | 连带问题 | 换缓存后 `pub get` 会为桌面端创建插件符号链接 → 报「requires symlink support / Developer Mode」。脚本同步时排除 `windows/macos/ios/linux` 目录即可，Android 构建不需要它们 |
 | 状态 | 🟢 已规避 |
