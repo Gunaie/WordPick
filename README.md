@@ -123,13 +123,17 @@ scripts\build_apk.cmd             # 打包 Release APK（混淆 + 符号剥离�
 | 形态 | 状态 | 说明 |
 |---|---|---|
 | Web | 可用 | 浏览器直接运行，含 PWA manifest；适合电脑与手机浏览器 |
-| Android APK | 可用 | Release 包，安装名「拾词」，版本 0.22.0 (22) |
+| Android APK | 可用 | Release 包，安装名「拾词」，版本 0.23.0 (23) |
 | iOS / macOS | 工程保留 | 未在真机验证 |
 | Windows | 工程保留 | 本机缺 VS C++ 工作负载与开发者模式，暂无法构建 |
 
 > 「拾词 · WordPick」为作品名，安装名与应用内顶部标识统一为「拾词」；包名 `english_study` 保持不变（影响已发布包的升级，不建议改动）。
 
 ## 更新日志
+
+### v0.23.0
+- 云同步改为 **BYOC 运行时自配**：在「设置 → 同步配置」填入你自己的 CloudBase 环境、Key 与用户标识即可启用；仓库与 APK 不再内置任何云端地址或密钥
+- 每人用自己的环境实现数据隔离，不同人数据互不干扰；不再需要为换环境重新构建
 
 ### v0.22.0
 - 应用名统一为「拾词」（Android / iOS / Web）
@@ -142,15 +146,8 @@ scripts\build_apk.cmd             # 打包 Release APK（混淆 + 符号剥离�
 
 **默认不往云端存数据**
 - 无账号、无埋点、无第三方统计 SDK；词书、进度、笔记默认只写本机（原生 SQLite / Web localStorage）。
-- 云同步默认关闭，仓库里也不内置云端地址与密钥。要启用需用自己的环境重新构建：
-
-```bash
-flutter build apk --release \
-  --dart-define=SYNC_ENABLED=true \
-  --dart-define=SYNC_ENV_ID=<环境ID> \
-  --dart-define=SYNC_API_KEY=<Publishable Key> \
-  --dart-define=SYNC_USER_ID=<自己的标识>
-```
+- 云同步默认关闭，仓库与安装包都不内置云端地址或密钥。需要时在 App「设置 → 同步配置」里填入**你自己的** CloudBase 环境 ID、Publishable Key 与用户标识即可启用（BYOC）。
+- 数据隔离靠「每人用自己的环境」：不同环境互不可见。同一人多台设备用同一个用户标识互通；不要把带 Key 的安装包发给他人。建表脚本见 [docs/cloudbase_schema.sql](docs/cloudbase_schema.sql)。
 
 **仍然会出网的两处**
 - 发音：向有道 `dictvoice` 请求音频，会把**被查询的单词**发给有道；失败时回退设备本地 TTS。

@@ -60,6 +60,132 @@ class _SettingsPageState extends State<SettingsPage> {
     return '已同步 · $hh:$mm';
   }
 
+  /// 打开云同步配置弹窗：启用开关 + 环境 ID / API Key / 用户标识
+  Future<void> _openSyncConfig() async {
+    final cfg = state.syncConfig;
+    final envCtrl = TextEditingController(text: cfg.envId);
+    final keyCtrl = TextEditingController(text: cfg.apiKey);
+    final userCtrl = TextEditingController(text: cfg.userId);
+    var enabled = cfg.enabled;
+    var obscure = true;
+    String? error;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+          title: const Text('云同步配置'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '启用后，进度、笔记与单词本会同步到你自己的 CloudBase 环境。'
+                '不同环境之间数据完全隔离——请用你自己的环境与 Key，'
+                '不要把带有 Key 的安装包发给他人。',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('启用云同步'),
+                value: enabled,
+                onChanged: (v) => setDialogState(() => enabled = v),
+              ),
+              TextField(
+                controller: envCtrl,
+                decoration: const InputDecoration(
+                  labelText: '环境 ID',
+                  hintText: 'splendid-cephalopod-xxxxxxxx',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: keyCtrl,
+                obscureText: obscure,
+                decoration: InputDecoration(
+                  labelText: 'API Key（Publishable / anon）',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscure ? Icons.visibility : Icons.visibility_off,
+                    ),
+                    onPressed: () =>
+                        setDialogState(() => obscure = !obscure),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: userCtrl,
+                decoration: const InputDecoration(
+                  labelText: '用户标识',
+                  hintText: '同一标识的多台设备互通，不同人用不同值',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  error!,
+                  style: TextStyle(color: AppColors.danger, fontSize: 12),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (enabled &&
+                    (envCtrl.text.trim().isEmpty ||
+                        keyCtrl.text.trim().isEmpty ||
+                        userCtrl.text.trim().isEmpty)) {
+                  setDialogState(() =>
+                      error = '启用时环境 ID、Key、用户标识都不能为空');
+                  return;
+                }
+                Navigator.pop(ctx, true);
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    envCtrl.dispose();
+    keyCtrl.dispose();
+    userCtrl.dispose();
+    if (saved != true || !mounted) return;
+
+    await state.setSyncConfig(
+      SyncConfig(
+        enabled: enabled,
+        envId: envCtrl.text.trim(),
+        apiKey: keyCtrl.text.trim(),
+        userId: userCtrl.text.trim(),
+      ),
+    );
+    if (!mounted) return;
+    final err = state.syncError;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          enabled
+              ? (err == null ? '已启用云同步，正在拉取数据…' : '已保存，但连接失败：$err')
+              : '已关闭云同步，数据仍保留在本机',
+        ),
+      ),
+    );
+  }
+
   String _fmtBytes(int? bytes) {
     if (bytes == null) return '计算中…';
     if (bytes < 1024) return '$bytes B';
@@ -341,7 +467,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             subtitle: Text(
                               state.syncEnabled
                                   ? '启动与回到前台时自动同步（1 分钟内不重复）'
-                                  : '当前构建未启用云同步，数据只保存在本机',
+                                  : '未配置时数据只在本机；可在下方配置自己的云端环境',
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: AppColors.textMuted,
                               ),
@@ -353,9 +479,29 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                           ListTile(
                             dense: true,
+                            title: const Text('同步配置'),
+                            subtitle: Text(
+                              state.syncConfig.hasAnyField
+                                  ? '点击修改环境 ID、Key 与用户标识'
+                                  : '每人用自己的云端环境，数据互不干扰',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                            trailing: const Icon(
+                              Icons.chevron_right,
+                              size: 20,
+                              color: AppColors.textMuted,
+                            ),
+                            onTap: _openSyncConfig,
+                          ),
+                          ListTile(
+                            dense: true,
                             title: const Text('环境'),
                             trailing: Text(
-                              SyncConfig.envId.isEmpty ? '未配置' : SyncConfig.envId,
+                              state.syncConfig.envId.isEmpty
+                                  ? '未配置'
+                                  : state.syncConfig.envId,
                               style: theme.textTheme.bodySmall,
                             ),
                           ),
@@ -363,7 +509,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             dense: true,
                             title: const Text('用户标识'),
                             trailing: Text(
-                              SyncConfig.userId,
+                              state.syncConfig.userId.isEmpty
+                                  ? '未设置'
+                                  : state.syncConfig.userId,
                               style: theme.textTheme.bodySmall,
                             ),
                           ),
@@ -692,7 +840,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             dense: true,
                             title: const Text('版本'),
                             trailing: Text(
-                              'v0.22',
+                              'v0.23',
                               style: theme.textTheme.bodySmall,
                             ),
                           ),

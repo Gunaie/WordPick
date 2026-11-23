@@ -44,10 +44,9 @@ pushd "%DST%"
 rem arm64 only keeps the APK small; drop --target-platform to ship 32-bit too.
 rem 混淆 + 符号剥离只提高反编译成本，不是安全边界；symbols 留在临时目录，不入库。
 set "SYMBOLS=%LOCALAPPDATA%\Temp\english_symbols"
-rem 需要云同步时，先在本机设置 SYNC_ENV_ID / SYNC_API_KEY / SYNC_USER_ID 再运行
-set "SYNC_DEFINES="
-if not "%SYNC_ENV_ID%"=="" set "SYNC_DEFINES=--dart-define=SYNC_ENABLED=true --dart-define=SYNC_ENV_ID=%SYNC_ENV_ID% --dart-define=SYNC_API_KEY=%SYNC_API_KEY% --dart-define=SYNC_USER_ID=%SYNC_USER_ID%"
-call "%FLUTTER%" build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation --obfuscate --split-debug-info="%SYMBOLS%" %SYNC_DEFINES%
+rem 云同步为 BYOC 运行时配置（用户在 App 设置页自填环境与 Key），
+rem 不再通过 --dart-define 注入：仓库与安装包都不含云端地址或密钥。
+call "%FLUTTER%" build apk --release --target-platform android-arm64 --android-skip-build-dependency-validation --obfuscate --split-debug-info="%SYMBOLS%"
 if errorlevel 1 (
   popd
   echo.

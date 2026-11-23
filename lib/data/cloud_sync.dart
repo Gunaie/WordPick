@@ -25,26 +25,29 @@ class SyncException implements Exception {
 class CloudSync {
   final http.Client _client;
 
-  /// 仅供测试：覆盖密钥（默认使用 [SyncConfig.apiKey]）
+  /// 运行时配置（BYOC：用户在设置页自填）
+  final SyncConfig config;
+
+  /// 仅供测试：覆盖密钥（默认使用 [config.apiKey]）
   final String? apiKeyOverride;
 
-  CloudSync({http.Client? client, this.apiKeyOverride})
+  CloudSync(this.config, {http.Client? client, this.apiKeyOverride})
       : _client = client ?? http.Client();
 
   static const _timeout = Duration(seconds: 12);
 
   Map<String, String> get _headers => {
-        'Authorization': 'Bearer ${apiKeyOverride ?? SyncConfig.apiKey}',
+        'Authorization': 'Bearer ${apiKeyOverride ?? config.apiKey}',
         'Content-Type': 'application/json',
-        'x-device-id': SyncConfig.deviceId,
+        'x-device-id': config.deviceId,
         // 冲突时按主键合并（upsert）
         'Prefer': 'resolution=merge-duplicates,return=minimal',
       };
 
   Uri _uri(String table, [Map<String, String>? query]) {
-    final base = Uri.parse('${SyncConfig.baseUrl}/$table');
+    final base = Uri.parse('${config.baseUrl}/$table');
     return base.replace(queryParameters: {
-      'user_id': 'eq.${SyncConfig.userId}',
+      'user_id': 'eq.${config.userId}',
       ...?query,
     });
   }
@@ -94,7 +97,7 @@ class CloudSync {
     final body = [
       for (final e in states.entries)
         {
-          'user_id': SyncConfig.userId,
+          'user_id': config.userId,
           'word_key': e.key,
           'ease': e.value.ease,
           'interval': e.value.interval,
@@ -143,7 +146,7 @@ class CloudSync {
       for (final n in notes)
         {
           'id': n.id,
-          'user_id': SyncConfig.userId,
+          'user_id': config.userId,
           'word_key': n.wordKey,
           'title': n.title,
           'content': n.content,
@@ -181,7 +184,7 @@ class CloudSync {
     final body = [
       for (final e in values.entries)
         {
-          'user_id': SyncConfig.userId,
+          'user_id': config.userId,
           'key': e.key,
           'value': e.value,
           'updated_at': now,

@@ -2,7 +2,7 @@ name: english_study
 description: "跨端英语学习工具：自建单词本、英美双发音、四选一与拼写练习、FSRS-6 复习、笔记与学习统计"
 publish_to: 'none'
 
-version: 0.22.0+22
+version: 0.23.0+23
 
 environment:
   sdk: ^3.13.7
@@ -38,6 +38,10 @@ dependencies:
 
   # 原生端导出文件调起系统分享
   share_plus: ^10.1.4
+
+  # 运行时同步配置（BYOC）：用户在设置页自填的 CloudBase 环境与 Key 存这里。
+  # 用 Publishable（anon）Key，不是高价值密钥，无需加密存储；Web 端走 localStorage。
+  shared_preferences: ^2.3.4
 
   # FSRS-6 间隔重复调度（默认算法，SM-2 可回滚）
   fsrs: ^2.0.1

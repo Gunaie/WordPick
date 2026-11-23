@@ -1,9 +1,11 @@
--- CloudBase（PostgreSQL 模式）同步表结构
--- 环境：splendid-cephalopod-xxxxxxxx
--- 用法：云开发控制台 → 数据库 → SQL 编辑器，整段粘贴执行
+-- CloudBase（PostgreSQL 模式）同步表结构（BYOC：每个用户在自己的环境里执行）
+-- 用法：云开发控制台 → 选你自己的环境 → 数据库 → SQL 编辑器，整段粘贴执行
 --
 -- 设计说明：
---   * 所有表用 user_id 做隔离，单用户默认 'me'，后续可换成自定义同步码
+--   * 隔离边界是「环境」：每人用自己的环境，互不可见，是推荐用法。
+--   * 同环境内用 user_id 区分（主要用于同一人多台设备互通）；若要把一个环境
+--     共享给多人，务必启用文末的 RLS，并改成需要登录鉴权的部署，否则 user_id
+--     可被客户端伪造，无法保证隔离。
 --   * 时间统一用 timestamptz，客户端按 ISO8601 传值
 --   * note 用软删除（deleted），保证跨端删除也能同步
 --   * 主键均可在客户端生成，避免多端自增冲突
@@ -73,6 +75,23 @@ create table if not exists user_meta (
 grant usage on schema public to anon;
 grant select, insert, update, delete
   on table review_state, note, user_meta to anon;
+
+-- ── 可选：共享环境下的行级安全（RLS）────────────────────
+-- 默认不开。仅当你把同一个环境共享给多人时才需要；单用户 / 每人独立环境可忽略。
+-- 前提：客户端必须以已登录身份访问，且网关把用户标识注入 PostgREST 的 GUC
+--      `app.user_id`（匿名 anon Key 无法区分用户，开了 RLS 会让客户端读不到数据）。
+-- alter table review_state enable row level security;
+-- alter table note          enable row level security;
+-- alter table user_meta     enable row level security;
+-- create policy review_state_owner on review_state
+--   using (user_id = current_setting('app.user_id', true))
+--   with check (user_id = current_setting('app.user_id', true));
+-- create policy note_owner on note
+--   using (user_id = current_setting('app.user_id', true))
+--   with check (user_id = current_setting('app.user_id', true));
+-- create policy user_meta_owner on user_meta
+--   using (user_id = current_setting('app.user_id', true))
+--   with check (user_id = current_setting('app.user_id', true));
 
 -- ── 验证 ───────────────────────────────────────────────
 -- 执行后应能看到三张表

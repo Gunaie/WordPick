@@ -17,6 +17,7 @@ import 'data/daily_stat.dart';
 import 'data/dictionary_repository.dart';
 import 'data/progress_store.dart';
 import 'data/sync_config.dart';
+import 'data/sync_config_store.dart';
 import 'domain/confusable_group.dart';
 import 'domain/confusable_queue.dart';
 import 'domain/custom_word_parser.dart';
@@ -65,8 +66,10 @@ class AppState extends ChangeNotifier {
   bool _ready = false;
   String? _error;
 
-  // ── 云同步状态 ──
-  final CloudSync? _sync = SyncConfig.active ? CloudSync() : null;
+  // ── 云同步状态（BYOC：运行时从本地配置加载，可在设置页切换）──
+  SyncConfig _syncConfig = SyncConfig.empty;
+  SyncConfigStore? _syncConfigStore;
+  CloudSync? _sync;
   bool _syncing = false;
   String? _syncError;
   DateTime? _lastSyncedAt;
@@ -77,6 +80,7 @@ class AppState extends ChangeNotifier {
   ProgressStore get store => _store;
 
   bool get syncEnabled => _sync != null;
+  SyncConfig get syncConfig => _syncConfig;
   bool get syncing => _syncing;
   String? get syncError => _syncError;
   DateTime? get lastSyncedAt => _lastSyncedAt;
@@ -143,6 +147,15 @@ class AppState extends ChangeNotifier {
 
   Future<void> init() async {
     try {
+      // 先加载同步配置：失败也只禁用同步，不影响本机数据加载
+      try {
+        _syncConfigStore = await SyncConfigStore.open();
+        _syncConfig = _syncConfigStore!.load();
+        _sync = _syncConfig.active ? CloudSync(_syncConfig) : null;
+      } catch (_) {
+        _syncConfig = SyncConfig.empty;
+        _sync = null;
+      }
       _store = await createProgressStore();
       await affixes.load();
       await dictionary.load();
@@ -296,6 +309,26 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     if (report.hasChanges) unawaited(syncNow());
     return report;
+  }
+
+  /// 运行时切换同步配置（设置页保存后调用）：持久化、重建 [CloudSync]，
+  /// 启用时立即拉一次；禁用时保留本机数据，只断开与云端的连接。
+  Future<void> setSyncConfig(SyncConfig next) async {
+    _syncConfig = next;
+    final store = _syncConfigStore;
+    if (store != null) {
+      try {
+        await store.save(next);
+      } catch (_) {
+        // 持久化失败不阻止本次生效，下次启动会回到旧配置
+      }
+    }
+    _sync?.dispose();
+    _sync = next.active ? CloudSync(next) : null;
+    _syncError = null;
+    _lastSyncedAt = null;
+    notifyListeners();
+    if (next.active) unawaited(syncNow());
   }
 
   /// 全量同步：先拉远端，按 updated_at 合并，再把本地更新的推上去
@@ -964,5 +997,11 @@ class AppState extends ChangeNotifier {
       }
       notifyListeners();
     }
+  }
+
+  @override
+  void dispose() {
+    _sync?.dispose();
+    super.dispose();
   }
 }
